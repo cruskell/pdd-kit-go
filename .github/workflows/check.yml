@@ -45,3 +45,4 @@ jobs:
           name: proof-receipts
           path: .pdd/receipts/
           if-no-files-found: warn
+          include-hidden-files: true

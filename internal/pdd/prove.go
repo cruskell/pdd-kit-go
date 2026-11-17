@@ -254,9 +254,18 @@ func Markdown(r Receipt) string {
 	var b strings.Builder
 	fmt.Fprint(&b, "# Proof-Driven Development receipt\n\n")
 	fmt.Fprintf(&b, "Success: **%t**\n\nPlan: `%s`\n\nSource: `%s`\n\n", r.Success, r.PlanDigest, r.SourceDigest)
+	fmt.Fprintf(&b, "Reviewer assertion: **%s** at %s\n\n", r.Approval.Reviewer, r.Approval.ApprovedAt.Format(time.RFC3339))
+	if r.GitCommit != "" {
+		fmt.Fprintf(&b, "Commit: `%s`\n\n", r.GitCommit)
+	}
 	fmt.Fprintln(&b, "| Requirement | Verification | Result |\n| --- | --- | --- |")
 	for _, v := range r.Requirements {
 		fmt.Fprintf(&b, "| %s | %s | %s |\n", v.ID, v.Kind, v.Status)
+	}
+	fmt.Fprint(&b, "\n## Executed checks\n\n")
+	fmt.Fprintln(&b, "| Check | Kind | Status | Duration | Log |\n| --- | --- | --- | --- | --- |")
+	for _, e := range r.Evidence {
+		fmt.Fprintf(&b, "| %s | %s | %s | %d ms | [%s](%s) |\n", e.Check, e.Kind, e.Execution.Status, e.Execution.DurationMS, e.Log, e.Log)
 	}
 	fmt.Fprint(&b, "\n## Trusted boundary\n\n")
 	for _, t := range r.Trust {
@@ -264,7 +273,16 @@ func Markdown(r Receipt) string {
 	}
 	fmt.Fprint(&b, "\n## Mutation checks\n\n")
 	for _, m := range r.Mutations {
-		fmt.Fprintf(&b, "- %s: %s\n", m.ID, m.Status)
+		fmt.Fprintf(&b, "- %s: %s ([log](%s))\n", m.ID, m.Status, m.Log)
+	}
+	fmt.Fprint(&b, "\n## Tool identities\n\n")
+	var toolNames []string
+	for name := range r.Tools {
+		toolNames = append(toolNames, name)
+	}
+	sort.Strings(toolNames)
+	for _, name := range toolNames {
+		fmt.Fprintf(&b, "- %s: `%s`\n", name, r.Tools[name])
 	}
 	fmt.Fprint(&b, "\n## Limits\n\n")
 	for _, n := range r.NonGoals {
