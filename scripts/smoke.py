@@ -13,6 +13,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pdd", required=True, type=Path)
     parser.add_argument("--version", required=True)
+    parser.add_argument("--policy", type=Path, help="independently provisioned public authority policy for the signed validation example")
     args = parser.parse_args()
     binary = args.pdd.resolve()
     with tempfile.TemporaryDirectory(prefix="pdd-clean-checkout-") as directory:
@@ -43,6 +44,18 @@ def main():
             result = cli("--plan", plan, "status")
             assert result["current"] and result["receipt"]["success"]
             print(f"{plan}: preserved review, real proof, empirical checks, mutants and freshness passed", flush=True)
+        if args.policy:
+            signed = ("--plan", "validation", "--policy", str(args.policy.resolve()))
+            cli(*signed, "init", "--from", "examples/validation/plan.json")
+            review = json.loads((clone / ".pdd/reviews/validation-signed.json").read_text())
+            cli(*signed, "import-approval", "--from", ".pdd/reviews/validation-signed.json")
+            result = cli(*signed, "prove")
+            assert result["current"] and result["receipt"]["success"]
+            assert result["receipt"]["approval"] == review
+            assert result["receipt"]["approval_policy"]["key_id"]
+            assert cli(*signed, "status")["current"]
+            cli("--plan", "validation", "status", success=False)
+            print("validation: installed binary enforced the signed authority policy", flush=True)
         # A later edit must fail even if the historical receipt says success.
         path = clone / "examples/httpwallet/app/handler.go"
         path.write_text(path.read_text() + "\n// clean-checkout stale-source probe\n")

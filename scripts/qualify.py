@@ -46,7 +46,7 @@ def main():
         data = json.loads(result.stdout)
         assert data['exit_code'] == result.returncode and data['ok'] == (result.returncode == 0)
         assert data['ok'] == success, (command, data, result.stderr)
-        return data['data']
+        return data.get('data')
 
     try:
         imported = cli('import-approval', '--from', str(approval))
@@ -71,7 +71,7 @@ def main():
                 raise ValueError('recovery probe is restricted to the shipped validation example')
             source = root / 'examples/validation/slice.go'
             original_source = source.read_bytes()
-            before, after = b'if values[i] < 0', b'if values[i] <= 0'
+            before, after = b'return true', b'return false'
             assert original_source.count(before) == 1
             try:
                 source.write_bytes(original_source.replace(before, after, 1))
@@ -87,6 +87,9 @@ def main():
             report['recovery_verified'] = True
             print('wrong implementation rejected; latest negative receipt observed; recovery passed', flush=True)
         report['success'] = True
+    except BaseException as error:
+        report['error'] = str(error)
+        raise
     finally:
         report['finished_at'] = datetime.now(timezone.utc).isoformat()
         output.write_text(json.dumps(report, indent=2) + '\n')
