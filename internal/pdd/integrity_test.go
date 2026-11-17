@@ -55,7 +55,7 @@ func TestSignedApprovalCannotBeDowngradedByApproveOrImport(t *testing.T) {
 }
 
 func TestStatusRechecksSuccessfulReceiptLogs(t *testing.T) {
-	for _, kind := range []string{"formal-summary", "contradictory-formal-summary", "required-test", "failed-test-event", "missing-mutant-log", "unrelated-mutant-failure"} {
+	for _, kind := range []string{"formal-summary", "contradictory-formal-summary", "required-test", "incomplete-package", "failed-test-event", "missing-mutant-log", "unrelated-mutant-failure"} {
 		t.Run(kind, func(t *testing.T) {
 			root, p := fixture(t)
 			approveFixture(t, root, p)
@@ -77,6 +77,8 @@ func TestStatusRechecksSuccessfulReceiptLogs(t *testing.T) {
 				receipt.Evidence[0].LogSHA256 = replaceLog(receipt.Evidence[0].Log, "Verifying package fixture\nGobra found 0 errors.\nGobra found 1 error.\n")
 			case "required-test":
 				receipt.Evidence[1].LogSHA256 = replaceLog(receipt.Evidence[1].Log, "{\"Action\":\"pass\",\"Test\":\"TestUnrelated\"}\n")
+			case "incomplete-package":
+				receipt.Evidence[1].LogSHA256 = replaceLog(receipt.Evidence[1].Log, "{\"Action\":\"pass\",\"Package\":\"fixture\",\"Test\":\"TestBoundary\"}\n")
 			case "failed-test-event":
 				receipt.Evidence[1].LogSHA256 = replaceLog(receipt.Evidence[1].Log, "{\"Action\":\"pass\",\"Test\":\"TestBoundary\"}\n{\"Action\":\"fail\"}\n")
 			case "missing-mutant-log":

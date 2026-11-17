@@ -214,10 +214,11 @@ func validateExecutionOutput(c Check, stdout, combined string) error {
 }
 
 func validateTests(output string, names []string) error {
-	passed := map[string]bool{}
+	passed := map[string]string{}
+	packages := map[string]bool{}
 	decoder := json.NewDecoder(strings.NewReader(output))
 	for {
-		var event struct{ Action, Test, Output string }
+		var event struct{ Action, Test, Output, Package string }
 		err := decoder.Decode(&event)
 		if err == io.EOF {
 			break
@@ -229,12 +230,14 @@ func validateTests(output string, names []string) error {
 			return fmt.Errorf("go test output records a failure for %s", event.Test)
 		}
 		if event.Action == "pass" && event.Test != "" {
-			passed[event.Test] = true
+			passed[event.Test] = event.Package
+		} else if event.Action == "pass" && event.Test == "" && event.Package != "" {
+			packages[event.Package] = true
 		}
 	}
 	for _, name := range names {
-		if !passed[name] {
-			return fmt.Errorf("required test %s did not execute and pass (missing or skipped)", name)
+		if passed[name] == "" || !packages[passed[name]] {
+			return fmt.Errorf("required test %s did not execute and pass in a successfully completed package (missing, skipped or incomplete output)", name)
 		}
 	}
 	return nil

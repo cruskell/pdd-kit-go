@@ -13,6 +13,10 @@
 - Clean up descendants when a check parent exits, including detached children.
   Windows uses a kill-on-close Job Object and registers a suspended root before
   allowing user code to run; unsupported containment fails closed.
+- Require the final successful package event as well as each named test pass;
+  incomplete Go JSON cannot establish success.
+- Pin CI action dependencies to immutable commit SHAs and verify feature branches
+  through pull requests, avoiding duplicate push/PR proof runs.
 - Preserve separate diagnostic stderr while reassessing Go JSON evidence.
 - Report the installed module version for `go install ...@v0.2.1` and provide
   persistent, checksummed release binaries with reproducible build metadata.

@@ -16,8 +16,8 @@ jobs:
       RELEASE_VERSION: ${{ inputs.version }}
       TRUSTED_REVIEW_POLICY_JSON: ${{ vars.PDD_REVIEW_POLICY }}
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: 1.27.4
           cache: false
@@ -41,7 +41,7 @@ jobs:
           (pathlib.Path(os.environ['RUNNER_TEMP']) / 'review-policy.json').write_text(json.dumps(policy))
           PYTHON
           python3 scripts/smoke.py --pdd "dist/extracted/pdd-kit-go_${RELEASE_VERSION}_linux_amd64/pdd" --version "$RELEASE_VERSION" --policy "$RUNNER_TEMP/review-policy.json"
-      - uses: actions/upload-artifact@v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pdd-kit-go-${{ inputs.version }}
           path: dist/first/

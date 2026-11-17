@@ -279,7 +279,7 @@ func TestGoDiagnosticsDoNotCorruptJSONEvidence(t *testing.T) {
 	wrapper := filepath.Join(t.TempDir(), "go-wrapper")
 	// A real Go invocation can write dependency-download notices to stderr.
 	// This fixture reproduces that separate diagnostic channel without networking.
-	source := "#!/bin/sh\nprintf 'go: downloading example.org/dependency v1.0.0\\n' >&2\nprintf '%s\\n' '{\"Action\":\"pass\",\"Test\":\"TestBoundary\"}'\n"
+	source := "#!/bin/sh\nprintf 'go: downloading example.org/dependency v1.0.0\\n' >&2\nprintf '%s\\n' '{\"Action\":\"pass\",\"Package\":\"fixture\",\"Test\":\"TestBoundary\"}' '{\"Action\":\"pass\",\"Package\":\"fixture\"}'\n"
 	if err := os.WriteFile(wrapper, []byte(source), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -301,8 +301,9 @@ func passedFixtureExecution(c Check) Execution {
 	if c.Kind == "go-test" {
 		e.Output = ""
 		for _, name := range c.Tests {
-			e.Output += fmt.Sprintf("{\"Action\":\"pass\",\"Test\":%q}\n", name)
+			e.Output += fmt.Sprintf("{\"Action\":\"pass\",\"Package\":\"fixture\",\"Test\":%q}\n", name)
 		}
+		e.Output += "{\"Action\":\"pass\",\"Package\":\"fixture\"}\n"
 	}
 	return e
 }
