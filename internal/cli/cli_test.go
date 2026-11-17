@@ -215,3 +215,74 @@ func TestMachineReadableEmpiricalWorkflowEndToEnd(t *testing.T) {
 		t.Fatalf("current negative evidence was not inspectable: %+v", response)
 	}
 }
+
+func TestSignedPolicyCLIEndToEnd(t *testing.T) {
+	root := t.TempDir()
+	keys := t.TempDir()
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, path), []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module fixture\ngo 1.20\n")
+	write("core.go", "package fixture\nfunc Allowed() bool {return true}\n")
+	write("core_test.go", "package fixture\nimport \"testing\"\nfunc TestEvidence(t *testing.T){if !Allowed(){t.Fatal(\"denied\")}}\n")
+	write("template.json", `{"schema":1,"name":"Signed CI","intent":"Allow the checked request.","non_goals":["Formal verification"],"requirements":[{"id":"decision","text":"Allow the checked request.","kind":"empirical","check":"tests"}],"checks":[{"id":"tests","kind":"go-test","package":".","tests":["TestEvidence"]}],"trusted_boundary":[],"mutations":[]}`)
+	var out, diagnostics bytes.Buffer
+	run := func(args ...string) (int, Response) {
+		t.Helper()
+		out.Reset()
+		diagnostics.Reset()
+		code := Run(append([]string{"--cwd", root, "--json"}, args...), &out, &diagnostics, "test")
+		return code, decodeResponse(t, &out, code)
+	}
+	if code, response := run("init", "--from", "template.json"); code != 0 {
+		t.Fatal(response)
+	}
+	secret := filepath.Join(keys, "private.pem")
+	public := filepath.Join(keys, "public.pem")
+	code, response := run("keygen", "--private-key", secret, "--public-key", public)
+	if code != 0 {
+		t.Fatal(response)
+	}
+	identity := response.Data.(map[string]interface{})
+	policy := map[string]interface{}{"schema": 1, "max_age_hours": 24, "reviewers": []interface{}{map[string]interface{}{"name": "maintainer", "public_key": identity["public_key"], "plans": []string{"default"}}}}
+	encoded, _ := json.Marshal(policy)
+	path := filepath.Join(keys, "policy.json")
+	if err := os.WriteFile(path, encoded, 0600); err != nil {
+		t.Fatal(err)
+	}
+	code, response = run("plan")
+	if code != 0 {
+		t.Fatal(response)
+	}
+	digest := response.Data.(map[string]interface{})["digest"].(string)
+	code, response = run("approve", "--reviewer", "maintainer", "--expect-digest", digest, "--signing-key", secret, "--policy", path)
+	if code != 0 {
+		t.Fatal(response)
+	}
+	code, response = run("prove")
+	if code != 1 {
+		t.Fatal("signature downgraded without policy", response)
+	}
+	t.Setenv("PDD_REVIEW_POLICY", path)
+	code, response = run("prove")
+	if code != 0 {
+		t.Fatalf("strict proof: %+v\n%s", response, diagnostics.String())
+	}
+	if response.Data.(map[string]interface{})["receipt"].(map[string]interface{})["approval_policy"] == nil {
+		t.Fatal("missing policy evidence")
+	}
+	code, response = run("status")
+	if code != 0 {
+		t.Fatal(response)
+	}
+	if err := os.WriteFile(path, []byte(`{"schema":1,"max_age_hours":24,"reviewers":[]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	code, response = run("status")
+	if code != 1 || response.Data.(map[string]interface{})["current"] != false {
+		t.Fatal("revocation did not fail status", response)
+	}
+}

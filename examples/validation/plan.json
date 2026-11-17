@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "name": "Permission-aware batch validation",
+  "intent": "Accept a batch exactly when every integer is nonnegative, preserving read access and every element. Validate the actual Go slice loop, including empty input and negative values at either end.",
+  "non_goals": [
+    "HTTP decoding, external libraries and arbitrary callers are covered by their own empirical checks, not this proof.",
+    "The explicit length precondition bounds slices to the maximum 64-bit Go int; this adapter targets 64-bit Go."
+  ],
+  "requirements": [
+    {
+      "id": "all-elements-nonnegative",
+      "text": "The result is true exactly when every batch element is nonnegative.",
+      "kind": "formal",
+      "check": "slice-proof",
+      "file": "examples/validation/slice.go",
+      "function": "AllNonnegative",
+      "ensures": "valid == (forall k int :: 0 <= k && k < len(values) ==> values[k] >= 0)"
+    },
+    {
+      "id": "slice-boundaries",
+      "text": "Actual Go execution handles nil, empty, zero, integer extremes and negative-first/last batches without modifying them.",
+      "kind": "empirical",
+      "check": "slice-tests"
+    }
+  ],
+  "checks": [
+    {
+      "id": "slice-proof",
+      "kind": "gobra",
+      "files": [
+        "examples/validation/slice.go"
+      ]
+    },
+    {
+      "id": "slice-tests",
+      "kind": "go-test",
+      "package": "./examples/validation",
+      "tests": [
+        "TestSliceValidation"
+      ]
+    }
+  ],
+  "trusted_boundary": [],
+  "mutations": [
+    {
+      "id": "reject-zero",
+      "requirement": "all-elements-nonnegative",
+      "check": "slice-proof",
+      "file": "examples/validation/slice.go",
+      "find": "if values[i] < 0",
+      "replace": "if values[i] <= 0"
+    },
+    {
+      "id": "skip-last-element",
+      "requirement": "all-elements-nonnegative",
+      "check": "slice-proof",
+      "file": "examples/validation/slice.go",
+      "find": "i < len(values)",
+      "replace": "i < len(values)-1"
+    }
+  ]
+}

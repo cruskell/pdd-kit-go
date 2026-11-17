@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // ExportApproval preserves a complete reviewed assertion without creating a new
 // review or timestamp. The destination should be a version-controlled artifact.
 func ExportApproval(root string, p Plan, destination string) (Approval, error) {
+	return ExportApprovalWithPolicy(root, p, destination, "")
+}
+func ExportApprovalWithPolicy(root string, p Plan, destination, policyPath string) (Approval, error) {
 	unlock, err := lockProject(root)
 	if err != nil {
 		return Approval{}, err
@@ -27,6 +31,11 @@ func ExportApproval(root string, p Plan, destination string) (Approval, error) {
 	}
 	if approval.Review == nil {
 		return approval, fmt.Errorf("portable approval requires a saved review; review and approve again before exporting")
+	}
+	if policyPath != "" {
+		if _, err = verifyPolicy(policyPath, p, approval, time.Now().UTC()); err != nil {
+			return approval, err
+		}
 	}
 	if destination == "" {
 		return approval, fmt.Errorf("--to is required")
@@ -51,6 +60,9 @@ func ExportApproval(root string, p Plan, destination string) (Approval, error) {
 // ImportApproval validates and restores an existing assertion. It never approves
 // changed intent, accepts new trust, or replaces its reviewer/timestamp.
 func ImportApproval(root string, p Plan, source string) (Approval, error) {
+	return ImportApprovalWithPolicy(root, p, source, "")
+}
+func ImportApprovalWithPolicy(root string, p Plan, source, policyPath string) (Approval, error) {
 	unlock, err := lockProject(root)
 	if err != nil {
 		return Approval{}, err
@@ -77,6 +89,11 @@ func ImportApproval(root string, p Plan, source string) (Approval, error) {
 	}
 	if err = validateApproval(root, p, approval); err != nil {
 		return approval, err
+	}
+	if policyPath != "" {
+		if _, err = verifyPolicy(policyPath, p, approval, time.Now().UTC()); err != nil {
+			return approval, err
+		}
 	}
 	// Verify the full frozen bundle against the current review as well as its
 	// digest, so an imported artifact is directly reviewable in code review.

@@ -2,21 +2,22 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 )
 
 type globals struct {
-	cwd, plan string
-	json      bool
+	cwd, plan, policy string
+	json              bool
 }
 
 func parseGlobals(args []string, cwd string) (globals, []string, error) {
-	options := globals{cwd: cwd, plan: "default"}
+	options := globals{cwd: cwd, plan: "default", policy: os.Getenv("PDD_REVIEW_POLICY")}
 	var rest []string
 	// Values of command options belong to those options, even when they happen
 	// to look like global flags. A -- sentinel ends all global option extraction.
-	values := map[string]bool{"--from": true, "--to": true, "--reviewer": true, "--accept-tcb": true, "--expect-digest": true, "--go": true, "--gobra-jar": true, "--timeout": true}
+	values := map[string]bool{"--from": true, "--to": true, "--reviewer": true, "--accept-tcb": true, "--expect-digest": true, "--go": true, "--gobra-jar": true, "--timeout": true, "--signing-key": true, "--private-key": true, "--public-key": true}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		key, value, equals := strings.Cut(arg, "=")
@@ -33,7 +34,7 @@ func parseGlobals(args []string, cwd string) (globals, []string, error) {
 				}
 				options.json = parsed
 			}
-		case "--cwd", "-C", "--plan":
+		case "--cwd", "-C", "--plan", "--policy":
 			if !equals {
 				if i+1 >= len(args) {
 					return options, rest, fmt.Errorf("%s requires a value", key)
@@ -41,7 +42,9 @@ func parseGlobals(args []string, cwd string) (globals, []string, error) {
 				i++
 				value = args[i]
 			}
-			if key == "--plan" {
+			if key == "--policy" {
+				options.policy = value
+			} else if key == "--plan" {
 				options.plan = value
 			} else {
 				options.cwd = value

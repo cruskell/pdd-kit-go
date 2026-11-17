@@ -66,13 +66,14 @@ type Mutation struct {
 	Replace     string `json:"replace"`
 }
 type Approval struct {
-	Schema        int           `json:"schema"`
-	Digest        string        `json:"digest"`
-	Reviewer      string        `json:"reviewer"`
-	AcceptedTrust []string      `json:"accepted_trust"`
-	ApprovedAt    time.Time     `json:"approved_at"`
-	PlanID        string        `json:"plan_id,omitempty"`
-	Review        *ReviewBundle `json:"review,omitempty"`
+	Signature     *ApprovalSignature `json:"signature,omitempty"`
+	Schema        int                `json:"schema"`
+	Digest        string             `json:"digest"`
+	Reviewer      string             `json:"reviewer"`
+	AcceptedTrust []string           `json:"accepted_trust"`
+	ApprovedAt    time.Time          `json:"approved_at"`
+	PlanID        string             `json:"plan_id,omitempty"`
+	Review        *ReviewBundle      `json:"review,omitempty"`
 }
 
 var idRE = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
@@ -508,6 +509,12 @@ func Approve(root string, p Plan, reviewer string, accepted []string) (Approval,
 	return ApproveExpected(root, p, reviewer, accepted, "")
 }
 func ApproveExpected(root string, p Plan, reviewer string, accepted []string, expected string) (Approval, error) {
+	return ApproveSigned(root, p, reviewer, accepted, expected, "")
+}
+func ApproveSigned(root string, p Plan, reviewer string, accepted []string, expected, signingKey string) (Approval, error) {
+	return ApproveSignedWithPolicy(root, p, reviewer, accepted, expected, signingKey, "")
+}
+func ApproveSignedWithPolicy(root string, p Plan, reviewer string, accepted []string, expected, signingKey, policyPath string) (Approval, error) {
 	unlock, err := lockProject(root)
 	if err != nil {
 		return Approval{}, err
@@ -544,6 +551,23 @@ func ApproveExpected(root string, p Plan, reviewer string, accepted []string, ex
 		return Approval{}, fmt.Errorf("review digest changed; expected %s, current %s; review again before approving", expected, digest)
 	}
 	a := Approval{Schema: 1, Digest: digest, Reviewer: reviewer, AcceptedTrust: accepted, ApprovedAt: time.Now().UTC(), PlanID: p.ID(), Review: &review}
+	if signingKey != "" {
+		if expected == "" {
+			return Approval{}, fmt.Errorf("signed approval requires --expect-digest from the review inspected")
+		}
+		rel, e := filepath.Rel(root, signingKey)
+		if e == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return Approval{}, fmt.Errorf("private signing key must be outside the project")
+		}
+		if err = signApproval(&a, signingKey); err != nil {
+			return Approval{}, err
+		}
+	}
+	if policyPath != "" {
+		if _, err = verifyPolicy(policyPath, p, a, time.Now().UTC()); err != nil {
+			return Approval{}, err
+		}
+	}
 	return a, WriteJSON(filepath.Join(root, p.stateFile("approval.json")), a)
 }
 func CheckApproval(root string, p Plan) error {
@@ -558,6 +582,11 @@ func CheckApproval(root string, p Plan) error {
 }
 
 func validateApproval(root string, p Plan, a Approval) error {
+	if a.Signature != nil {
+		if _, err := verifySignature(a); err != nil {
+			return err
+		}
+	}
 	digest, err := Digest(root, p)
 	if err != nil {
 		return err

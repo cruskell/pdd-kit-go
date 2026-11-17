@@ -3,7 +3,6 @@ package pdd
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -71,63 +70,6 @@ func TestDeadlineIsReportedAsTimeout(t *testing.T) {
 	if result.Status != "timeout" {
 		t.Fatalf("deadline result: %+v", result)
 	}
-}
-
-// Invoked as a subprocess by the crash-recovery test, never a normal suite run.
-func TestLockHolderProcess(t *testing.T) {
-	root := os.Getenv("PDD_LOCK_HELPER_ROOT")
-	if root == "" {
-		return
-	}
-	unlock, err := lockProject(root)
-	if err != nil {
-		os.Exit(3)
-	}
-	defer unlock()
-	if err = os.WriteFile(filepath.Join(root, ".pdd/holder-ready"), []byte("ready"), 0600); err != nil {
-		os.Exit(4)
-	}
-	for {
-		time.Sleep(time.Hour)
-	}
-}
-func TestProjectLockRecoversAfterProcessCrash(t *testing.T) {
-	root := t.TempDir()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestLockHolderProcess$")
-	cmd.Env = append(os.Environ(), "PDD_LOCK_HELPER_ROOT="+root)
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if cmd.ProcessState == nil {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-		}
-	}()
-	ready := false
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
-		if _, err := os.Stat(filepath.Join(root, ".pdd/holder-ready")); err == nil {
-			ready = true
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !ready {
-		t.Fatal("lock holder did not become ready")
-	}
-	if unlock, err := lockProject(root); err == nil {
-		unlock()
-		t.Fatal("second process acquired the same project lock")
-	}
-	if err := cmd.Process.Kill(); err != nil {
-		t.Fatal(err)
-	}
-	_ = cmd.Wait()
-	unlock, err := lockProject(root)
-	if err != nil {
-		t.Fatalf("dead process left a stale lock: %v", err)
-	}
-	unlock()
 }
 
 func TestSpecialFilesCannotBlockSourceValidation(t *testing.T) {

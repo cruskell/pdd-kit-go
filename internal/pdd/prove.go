@@ -38,30 +38,32 @@ type Verdict struct {
 	Check  string `json:"check"`
 }
 type Receipt struct {
-	Inputs       *InputRecord      `json:"inputs,omitempty"`
-	PlanID       string            `json:"plan_id,omitempty"`
-	Schema       int               `json:"schema"`
-	Version      string            `json:"version"`
-	StartedAt    time.Time         `json:"started_at"`
-	FinishedAt   time.Time         `json:"finished_at"`
-	PlanDigest   string            `json:"plan_digest"`
-	SourceDigest string            `json:"source_digest"`
-	GitCommit    string            `json:"git_commit,omitempty"`
-	Approval     Approval          `json:"approval"`
-	Tools        map[string]string `json:"tools"`
-	Success      bool              `json:"success"`
-	Evidence     []Evidence        `json:"evidence"`
-	Mutations    []MutationResult  `json:"mutations"`
-	Requirements []Verdict         `json:"requirements"`
-	Trust        []Trust           `json:"trusted_boundary"`
-	NonGoals     []string          `json:"non_goals"`
-	Gaps         []string          `json:"gaps"`
+	ApprovalPolicy *PolicyEvidence   `json:"approval_policy,omitempty"`
+	Inputs         *InputRecord      `json:"inputs,omitempty"`
+	PlanID         string            `json:"plan_id,omitempty"`
+	Schema         int               `json:"schema"`
+	Version        string            `json:"version"`
+	StartedAt      time.Time         `json:"started_at"`
+	FinishedAt     time.Time         `json:"finished_at"`
+	PlanDigest     string            `json:"plan_digest"`
+	SourceDigest   string            `json:"source_digest"`
+	GitCommit      string            `json:"git_commit,omitempty"`
+	Approval       Approval          `json:"approval"`
+	Tools          map[string]string `json:"tools"`
+	Success        bool              `json:"success"`
+	Evidence       []Evidence        `json:"evidence"`
+	Mutations      []MutationResult  `json:"mutations"`
+	Requirements   []Verdict         `json:"requirements"`
+	Trust          []Trust           `json:"trusted_boundary"`
+	NonGoals       []string          `json:"non_goals"`
+	Gaps           []string          `json:"gaps"`
 }
 type Options struct {
-	Version  string
-	Runner   Runner
-	Tools    map[string]string
-	Progress func(string)
+	PolicyPath string
+	Version    string
+	Runner     Runner
+	Tools      map[string]string
+	Progress   func(string)
 }
 
 // Prove executes only approved checks. Missing tools, missing tests, surviving
@@ -89,6 +91,16 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 	digest, err := Digest(root, p)
 	if err != nil {
 		return receipt, "", err
+	}
+	if receipt.Approval.Signature != nil && options.PolicyPath == "" {
+		return receipt, "", fmt.Errorf("signed approval requires --policy for authorization")
+	}
+	if options.PolicyPath != "" {
+		evidence, err := verifyPolicy(options.PolicyPath, p, receipt.Approval, time.Now().UTC())
+		if err != nil {
+			return receipt, "", err
+		}
+		receipt.ApprovalPolicy = &evidence
 	}
 	receipt.PlanDigest = digest
 	if b, err := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output(); err == nil {
@@ -321,6 +333,13 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 	if CheckApproval(root, p) != nil || approvalErr != nil || !sameApproval(receipt.Approval, finalApproval) {
 		receipt.Gaps = append(receipt.Gaps, "approval changed during verification")
 	}
+	if options.PolicyPath != "" {
+		evidence, err := verifyPolicy(options.PolicyPath, p, finalApproval, time.Now().UTC())
+		if err != nil || receipt.ApprovalPolicy == nil || evidence != *receipt.ApprovalPolicy {
+			inputAuditIncomplete = true
+			receipt.Gaps = append(receipt.Gaps, "review policy changed or authorization expired during verification")
+		}
+	}
 	if ctx.Err() != nil {
 		receipt.Gaps = append(receipt.Gaps, "verification canceled: "+ctx.Err().Error())
 		for i := range receipt.Requirements {
@@ -410,7 +429,8 @@ func Markdown(r Receipt) string {
 
 // Status rejects stale source/plan and damaged log artifacts, even when an old
 // receipt was green. Receipt files are local attestations, not signed proofs.
-func Status(root string, p Plan) (Receipt, string, error) {
+func Status(root string, p Plan) (Receipt, string, error) { return StatusWithPolicy(root, p, "") }
+func StatusWithPolicy(root string, p Plan, policyPath string) (Receipt, string, error) {
 	var receipt Receipt
 	var dir string
 	state, stateErr := readRunState(root, p)
@@ -453,6 +473,18 @@ func Status(root string, p Plan) (Receipt, string, error) {
 	var currentApproval Approval
 	if err = ReadJSON(filepath.Join(root, p.stateFile("approval.json")), &currentApproval); err != nil || !sameApproval(receipt.Approval, currentApproval) {
 		return receipt, dir, fmt.Errorf("stale receipt: approval record changed")
+	}
+	if (receipt.ApprovalPolicy != nil || currentApproval.Signature != nil) && policyPath == "" {
+		return receipt, dir, fmt.Errorf("receipt requires --policy to revalidate signing authority and expiry")
+	}
+	if policyPath != "" {
+		evidence, err := verifyPolicy(policyPath, p, currentApproval, time.Now().UTC())
+		if err != nil {
+			return receipt, dir, err
+		}
+		if receipt.ApprovalPolicy == nil || evidence != *receipt.ApprovalPolicy {
+			return receipt, dir, fmt.Errorf("receipt was not verified under the current signing policy; prove again with --policy")
+		}
 	}
 	if stateErr == nil && (!receipt.StartedAt.Equal(state.StartedAt) || !receipt.FinishedAt.Equal(state.FinishedAt)) {
 		return receipt, dir, fmt.Errorf("latest-run record does not match its receipt")
@@ -577,6 +609,11 @@ func Status(root string, p Plan) (Receipt, string, error) {
 
 func sameApproval(a, b Approval) bool {
 	if a.PlanID != b.PlanID || a.Schema != b.Schema || a.Digest != b.Digest || a.Reviewer != b.Reviewer || !a.ApprovedAt.Equal(b.ApprovedAt) {
+		return false
+	}
+	leftSig, _ := json.Marshal(a.Signature)
+	rightSig, _ := json.Marshal(b.Signature)
+	if !bytes.Equal(leftSig, rightSig) {
 		return false
 	}
 	aa, bb := append([]string{}, a.AcceptedTrust...), append([]string{}, b.AcceptedTrust...)

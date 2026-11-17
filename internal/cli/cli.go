@@ -25,6 +25,7 @@ Usage: pdd [--cwd DIR] [--plan NAME] [--json] <command> [options]
   plans      List valid and invalid plans in this project
   plan       Review intent, contracts, checks and trust; --diff shows changes
   lint       Validate the selected plan and production Go contract mappings
+  keygen     Generate an Ed25519 keypair (keep the private key outside the project)
   approve    Record review: --reviewer NAME [--accept-tcb id1,id2]
   export-approval  Save the current reviewed assertion: --to PATH
   import-approval  Restore a matching reviewed assertion: --from PATH
@@ -32,18 +33,20 @@ Usage: pdd [--cwd DIR] [--plan NAME] [--json] <command> [options]
   status     Check whether this plan's latest receipt is current and successful
   doctor     Check Go and Docker/Java prerequisites
 
+Global: --policy PATH (or PDD_REVIEW_POLICY) enforces authorized, unexpired signatures
 Global: --cwd DIR, --plan NAME (default: default), --json, --version, --help
 Named plans: .pdd/plans/NAME.json; state: .pdd/state/NAME/
 The default plan keeps .pdd/plan.json and .pdd/approval.json.
 init:       --from PATH (optional; imports a plan without executing it)
 plan:       --diff
 approve:    --reviewer NAME --accept-tcb ID[,ID...] --expect-digest SHA256
+            Optional --signing-key PATH signs that reviewed digest.
             Review plan --json first; --expect-digest guards review-time changes.
 prove:      --go PATH --gobra-jar PATH --timeout 2m
             Default backend: pinned Gobra Docker image. Missing tools fail closed.
             Project tests run in scratch copies with host user permissions.
 --json:     One schema-1 response on stdout, progress on stderr; check ok/exit_code.
-Approval records a local assertion; it does not authenticate reviewer identity.
+Without --policy approval is a local assertion. With --policy, signing keys must be authorized.
 `
 
 func Run(args []string, out, errOut io.Writer, version string) (exitCode int) {
@@ -105,11 +108,15 @@ func Run(args []string, out, errOut io.Writer, version string) (exitCode int) {
 			fmt.Fprint(out, help)
 		}
 	}
-	var reviewer, accepted, expected, goExe, jar, from, to string
+	var reviewer, accepted, expected, goExe, jar, from, to, signingKey, privateKey, publicKey string
 	var timeout time.Duration
 	var diff bool
 	switch command {
+	case "keygen":
+		fs.StringVar(&privateKey, "private-key", "", "New private key path (outside project)")
+		fs.StringVar(&publicKey, "public-key", "", "New public key path")
 	case "approve":
+		fs.StringVar(&signingKey, "signing-key", "", "Ed25519 PKCS8 private key PEM")
 		fs.StringVar(&reviewer, "reviewer", "", "Reviewer assertion")
 		fs.StringVar(&accepted, "accept-tcb", "", "Comma-separated trust IDs")
 		fs.StringVar(&expected, "expect-digest", "", "Digest of the intent and contracts reviewed")
@@ -175,6 +182,33 @@ func Run(args []string, out, errOut io.Writer, version string) (exitCode int) {
 		}
 		return printer.finish(0, result, "", nil, "")
 	}
+	resolve := func(path string) string {
+		if path != "" && !filepath.IsAbs(path) {
+			return filepath.Join(cwd, path)
+		}
+		return path
+	}
+	global.policy = resolve(global.policy)
+	signingKey = resolve(signingKey)
+	if command == "keygen" {
+		if privateKey == "" || publicKey == "" {
+			return printer.finish(2, nil, "usage", fmt.Errorf("keygen requires --private-key and --public-key"), "")
+		}
+		privateKey = resolve(privateKey)
+		publicKey = resolve(publicKey)
+		rel, e := filepath.Rel(cwd, privateKey)
+		if e == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return printer.finish(2, nil, "usage", fmt.Errorf("store private keys outside the project so source snapshots cannot copy them"), "")
+		}
+		identity, err := pdd.GenerateSigningKey(privateKey, publicKey)
+		if err != nil {
+			return printer.finish(1, nil, "signing", err, "")
+		}
+		if !global.json {
+			fmt.Fprintln(out, "Created Ed25519 signing identity", identity.KeyID)
+		}
+		return printer.finish(0, identity, "", nil, "")
+	}
 	plan, err := pdd.LoadNamed(cwd, paths.Name)
 	if err != nil {
 		return printer.finish(1, nil, "validation", err, "Check the selected plan file and its contract mappings; use init for a new plan.")
@@ -205,7 +239,7 @@ func Run(args []string, out, errOut io.Writer, version string) (exitCode int) {
 				trust = append(trust, strings.TrimSpace(id))
 			}
 		}
-		approval, err := pdd.ApproveExpected(cwd, plan, reviewer, trust, expected)
+		approval, err := pdd.ApproveSignedWithPolicy(cwd, plan, reviewer, trust, expected, signingKey, global.policy)
 		if err != nil {
 			return printer.finish(1, nil, "approval", err, "Review plan --diff and plan --json before recording approval.")
 		}
@@ -219,9 +253,9 @@ func Run(args []string, out, errOut io.Writer, version string) (exitCode int) {
 		}
 		var approval pdd.Approval
 		if command == "export-approval" {
-			approval, err = pdd.ExportApproval(cwd, plan, to)
+			approval, err = pdd.ExportApprovalWithPolicy(cwd, plan, to, global.policy)
 		} else {
-			approval, err = pdd.ImportApproval(cwd, plan, from)
+			approval, err = pdd.ImportApprovalWithPolicy(cwd, plan, from, global.policy)
 		}
 		if err != nil {
 			return printer.finish(1, nil, "approval", err, "Import only a complete saved review matching this plan; changed intent requires review and approval.")
@@ -243,11 +277,11 @@ func Run(args []string, out, errOut io.Writer, version string) (exitCode int) {
 				return printer.finish(2, nil, "usage", err, "")
 			}
 		}
-		receipt, dir, err := pdd.Prove(ctx, cwd, plan, pdd.Options{Version: version, Runner: pdd.ToolRunner{Go: goExe, GobraJar: jar, Timeout: timeout}, Tools: pdd.ToolInfo(ctx, goExe, jar), Progress: func(message string) { fmt.Fprintln(errOut, message) }})
+		receipt, dir, err := pdd.Prove(ctx, cwd, plan, pdd.Options{PolicyPath: global.policy, Version: version, Runner: pdd.ToolRunner{Go: goExe, GobraJar: jar, Timeout: timeout}, Tools: pdd.ToolInfo(ctx, goExe, jar), Progress: func(message string) { fmt.Fprintln(errOut, message) }})
 		if err != nil {
 			return printer.finish(1, nil, "execution", err, "")
 		}
-		_, latest, currentErr := pdd.Status(cwd, plan)
+		_, latest, currentErr := pdd.StatusWithPolicy(cwd, plan, global.policy)
 		current := currentErr == nil && latest == dir
 		data := receiptResult(receipt, dir, current)
 		if !global.json {
@@ -270,7 +304,7 @@ func Run(args []string, out, errOut io.Writer, version string) (exitCode int) {
 		}
 		return printer.finish(0, data, "", nil, "")
 	case "status":
-		receipt, dir, err := pdd.Status(cwd, plan)
+		receipt, dir, err := pdd.StatusWithPolicy(cwd, plan, global.policy)
 		data := receiptResult(receipt, dir, err == nil)
 		if err != nil {
 			return printer.finish(1, data, "status", err, "Run prove against the current approved plan to obtain current evidence.")
