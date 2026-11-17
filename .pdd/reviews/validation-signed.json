@@ -1,0 +1,115 @@
+{
+  "signature": {
+    "algorithm": "ed25519",
+    "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAKqt1/zF+WcIvZSjvDlLHR1IKpggOY9ParxiumtQSArc=\n-----END PUBLIC KEY-----\n",
+    "value": "SSjbSPi0w0IFbqwsopS52r49E0Pfeu85on8jjH99ByuUYatw9ZPiBWXdPMJ5rDdOSUjs6E4o6t/oQ5BziF8WDw=="
+  },
+  "schema": 1,
+  "digest": "ad30bf581cd80ddad126593d8cba54d5ab615bdb06da15f8d84e33ce1f570c49",
+  "reviewer": "codex-operational-test",
+  "accepted_trust": [],
+  "approved_at": "2026-11-17T14:03:35.771003907Z",
+  "plan_id": "validation",
+  "review": {
+    "schema": 1,
+    "plan_id": "validation",
+    "plan": {
+      "schema": 1,
+      "name": "Permission-aware batch validation",
+      "intent": "Accept a batch exactly when every integer is nonnegative, preserving read access and every element. Validate the actual Go slice loop, including empty input and negative values at either end.",
+      "non_goals": [
+        "HTTP decoding, external libraries and arbitrary callers are covered by their own empirical checks, not this proof.",
+        "The explicit length precondition bounds slices to the maximum 64-bit Go int; this adapter targets 64-bit Go."
+      ],
+      "requirements": [
+        {
+          "id": "all-elements-nonnegative",
+          "text": "The result is true exactly when every batch element is nonnegative.",
+          "kind": "formal",
+          "check": "slice-proof",
+          "file": "examples/validation/slice.go",
+          "function": "AllNonnegative",
+          "ensures": "valid == (forall k int :: 0 \u003c= k \u0026\u0026 k \u003c len(values) ==\u003e values[k] \u003e= 0)"
+        },
+        {
+          "id": "slice-boundaries",
+          "text": "Actual Go execution handles nil, empty, zero, integer extremes and negative-first/last batches without modifying them.",
+          "kind": "empirical",
+          "check": "slice-tests"
+        }
+      ],
+      "checks": [
+        {
+          "id": "slice-proof",
+          "kind": "gobra",
+          "files": [
+            "examples/validation/slice.go"
+          ]
+        },
+        {
+          "id": "slice-tests",
+          "kind": "go-test",
+          "package": "./examples/validation",
+          "tests": [
+            "TestSliceValidation"
+          ]
+        }
+      ],
+      "trusted_boundary": [],
+      "mutations": [
+        {
+          "id": "reject-zero",
+          "requirement": "all-elements-nonnegative",
+          "check": "slice-proof",
+          "file": "examples/validation/slice.go",
+          "find": "if values[i] \u003c 0",
+          "replace": "if values[i] \u003c= 0"
+        },
+        {
+          "id": "skip-last-element",
+          "requirement": "all-elements-nonnegative",
+          "check": "slice-proof",
+          "file": "examples/validation/slice.go",
+          "find": "i \u003c len(values)",
+          "replace": "i \u003c len(values)-1"
+        }
+      ]
+    },
+    "sources": [
+      {
+        "file": "examples/validation/slice.go",
+        "annotations": [
+          "requires len(values) \u003c= 9223372036854775807",
+          "preserves forall k int :: 0 \u003c= k \u0026\u0026 k \u003c len(values) ==\u003e acc(\u0026values[k], 1/2)",
+          "ensures valid == (forall k int :: 0 \u003c= k \u0026\u0026 k \u003c len(values) ==\u003e values[k] \u003e= 0)",
+          "invariant 0 \u003c= i \u0026\u0026 i \u003c= len(values)",
+          "invariant forall k int :: 0 \u003c= k \u0026\u0026 k \u003c len(values) ==\u003e acc(\u0026values[k], 1/2)",
+          "invariant forall k int :: 0 \u003c= k \u0026\u0026 k \u003c i ==\u003e values[k] \u003e= 0",
+          "declarations:package validation\n\nfunc AllNonnegative(values []int) (valid bool) {\n}\n"
+        ],
+        "bindings": [
+          {
+            "owner": "function:AllNonnegative/contract",
+            "annotation": "requires len(values) \u003c= 9223372036854775807"
+          },
+          {
+            "owner": "function:AllNonnegative/contract",
+            "annotation": "preserves forall k int :: 0 \u003c= k \u0026\u0026 k \u003c len(values) ==\u003e acc(\u0026values[k], 1/2)"
+          },
+          {
+            "owner": "function:AllNonnegative/body",
+            "annotation": "invariant 0 \u003c= i \u0026\u0026 i \u003c= len(values)"
+          },
+          {
+            "owner": "function:AllNonnegative/body",
+            "annotation": "invariant forall k int :: 0 \u003c= k \u0026\u0026 k \u003c len(values) ==\u003e acc(\u0026values[k], 1/2)"
+          },
+          {
+            "owner": "function:AllNonnegative/body",
+            "annotation": "invariant forall k int :: 0 \u003c= k \u0026\u0026 k \u003c i ==\u003e values[k] \u003e= 0"
+          }
+        ]
+      }
+    ]
+  }
+}

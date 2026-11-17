@@ -8,6 +8,10 @@ Versioned binaries, checksums and reproducible build instructions are in
 [distribution](docs/distribution.md). See [CI adoption](docs/ci.md) and
 [troubleshooting/migration](docs/troubleshooting.md).
 
+See [authenticated review gates](docs/signed-reviews.md) and
+[production qualification](docs/production-readiness.md) for signed authority,
+native platform checks and repeatable failure/recovery testing.
+
 ## Quick start
 
 The CLI uses only Go's standard library. Build with Go 1.20+ on a 64-bit host. Formal checks additionally require Docker and the pinned Gobra image, or a local Gobra jar with Java and Z3 configured.
@@ -67,7 +71,8 @@ pdd --cwd /path/to/repo prove
 | `plans` | List default/named plans, including invalid drafts |
 | `plan` | Display intent, formal clauses, trust assumptions, mutations and exclusions; `--diff` shows changes since review |
 | `lint` | Validate mappings against production Go and ensure every formal clause has a mutation |
-| `approve` | Record a reviewer assertion bound to the plan, declarations and proof annotations |
+| `keygen` | Create an Ed25519 keypair outside the source tree |
+| `approve` | Record a reviewer assertion; `--signing-key` signs the inspected `--expect-digest` |
 | `export-approval` | Save an existing complete review with `--to PATH` |
 | `import-approval` | Restore a matching review with `--from PATH`, preserving its assertion |
 | `prove` | Run all approved checks and mutations in scratch copies; write JSON/Markdown receipts and logs |
@@ -118,7 +123,7 @@ Verification and approval are protected by an OS-backed project lock, automatica
 
 Default-plan artifacts live under `.pdd/receipts/<UTC-run-id>/` (named plans use `.pdd/state/NAME/receipts/`): `receipt.json`, `receipt.md`, `inputs.json` and per-check logs. Receipts include source/plan SHA-256 digests, reviewer assertion, commit (when present), tool identities, commands, durations, outcomes, mutation results, trust assumptions, exclusions and gaps. They are ignored by Git; CI uploads them as artifacts.
 
-Approvals and receipts are **local, unsigned attestations**, not authentication, a cryptographic proof certificate, or protection against a malicious project owner. Hash checks catch stale or accidentally altered artifacts. The Go compiler, Gobra/Viper/Z3, host environment and dependency behavior remain trusted. Go tests and a local jar execute with your user permissions; scratch copies protect source organization but are not an OS security sandbox. The Docker verifier has a read-only source mount and no network.
+Default approvals and all receipts are **local attestations**. Optional Ed25519 approvals with `--policy` authenticate authorized signing keys and enforce expiry/revocation; receipts themselves remain unsigned. They are not cryptographic proof certificates or protection against a malicious project owner. Hash checks catch stale or accidentally altered artifacts. The Go compiler, Gobra/Viper/Z3, host environment and dependency behavior remain trusted. Go tests and a local jar execute with your user permissions; scratch copies protect source organization but are not an OS security sandbox. The Docker verifier has a read-only source mount and no network.
 
 ## Current scope
 

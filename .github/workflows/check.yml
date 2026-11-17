@@ -85,3 +85,58 @@ jobs:
             .pdd/*-result.json
           if-no-files-found: warn
           include-hidden-files: true
+  authenticated-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TRUSTED_REVIEW_POLICY_JSON: ${{ vars.PDD_REVIEW_POLICY }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          path: target
+      - name: Checkout independently pinned verifier orchestration
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: 148f1398b2703a7724a44a43096e42f4875a8d74
+          path: trusted-tooling
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: 1.27.4
+          cache: false
+      - name: Build trusted CLI
+        working-directory: trusted-tooling
+        run: go build -ldflags '-X main.version=148f139-policy-gate' -o ../pdd-trusted ./cmd/pdd
+      - name: Read public authority policy from independently managed repository variable
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, pathlib
+          policy = json.loads(os.environ['TRUSTED_REVIEW_POLICY_JSON'])
+          assert policy['schema'] == 1 and policy['reviewers']
+          (pathlib.Path(os.environ['RUNNER_TEMP']) / 'review-policy.json').write_text(json.dumps(policy))
+          PYTHON
+      - name: Pull pinned Gobra
+        run: docker pull ghcr.io/viperproject/gobra@sha256:5e96431b06c2e6209aa767df9153bb4cf8b2620598598f1d7d3f3a74c09c14f9
+      - name: Repeat signed verification without a private key or CI approval
+        run: |
+          set -euo pipefail
+          gate=(./pdd-trusted --cwd target --plan validation --policy "$RUNNER_TEMP/review-policy.json")
+          "${gate[@]}" init --from examples/validation/plan.json
+          "${gate[@]}" import-approval --from .pdd/reviews/validation-signed.json
+          mkdir -p target/.pdd/results
+          for attempt in 1 2 3; do
+            "${gate[@]}" prove --json > "target/.pdd/results/gate-${attempt}-prove.json"
+            "${gate[@]}" status --json > "target/.pdd/results/gate-${attempt}-status.json"
+          done
+          if PDD_REVIEW_POLICY= ./pdd-trusted --cwd target --plan validation status --json > target/.pdd/results/gate-no-policy.json; then
+            echo 'Signed gate unexpectedly accepted a missing policy' >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: authenticated-gate-evidence
+          path: |
+            target/.pdd/state/validation/receipts/
+            target/.pdd/results/gate-*.json
+          include-hidden-files: true
+          if-no-files-found: warn

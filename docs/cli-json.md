@@ -29,6 +29,7 @@ unknown fields inside `data`.
 | `plan` | `digest`, `bundle`, `verification_order`, `dependencies`, `approval`, `changes_available`, `changes` |
 | `lint` | `valid`, `digest`, `plan_path`, requirement/check counts |
 | `export-approval`, `import-approval` | Existing complete approval assertion; reviewer and timestamp are preserved |
+| `keygen` | Public identity only: `algorithm`, `key_id`, `public_key`; never private key material |
 | `approve` | Approval assertion with plan identity, reviewer, digest, trust IDs, timestamp and frozen `review` |
 | `prove`, `status` | `current`, optional `receipt`, optional JSON receipt `path` |
 | `doctor` | Ordered prerequisite `checks` and the pinned-image `docker_pull` command |
@@ -65,3 +66,5 @@ records are unsigned local attestations; repository review policy supplies any
 real identity and authorization requirements.
 
 Keep generated result files under `.pdd/` (excluded from source snapshots). Redirecting output into a snapshotted source-tree file changes that tree after verification and correctly makes the next status check stale.
+
+With `--policy` or `PDD_REVIEW_POLICY`, prove/status enforce authorized unexpired signatures. Receipts include `approval_policy` (digest, key ID, reviewer). Signed approvals cannot be proved without a policy. `keygen` and `--signing-key` support the workflow described in [signed reviews](signed-reviews.md).
