@@ -119,24 +119,27 @@ jobs:
       - name: Repeat signed verification without a private key or CI approval
         run: |
           set -euo pipefail
-          gate=(./pdd-trusted --cwd target --plan validation --policy "$RUNNER_TEMP/review-policy.json")
-          "${gate[@]}" init --from examples/validation/plan.json
-          "${gate[@]}" import-approval --from .pdd/reviews/validation-signed.json
-          mkdir -p target/.pdd/results
-          for attempt in 1 2 3; do
-            "${gate[@]}" prove --json > "target/.pdd/results/gate-${attempt}-prove.json"
-            "${gate[@]}" status --json > "target/.pdd/results/gate-${attempt}-status.json"
+          for plan in validation httpwallet; do
+            gate=(./pdd-trusted --cwd target --plan "$plan" --policy "$RUNNER_TEMP/review-policy.json")
+            "${gate[@]}" init --from "examples/${plan}/plan.json"
+            "${gate[@]}" import-approval --from ".pdd/reviews/${plan}-signed.json"
+            mkdir -p target/.pdd/results
+            for attempt in 1 2 3; do
+              "${gate[@]}" prove --json > "target/.pdd/results/gate-${plan}-${attempt}-prove.json"
+              "${gate[@]}" status --json > "target/.pdd/results/gate-${plan}-${attempt}-status.json"
+            done
+            if PDD_REVIEW_POLICY= ./pdd-trusted --cwd target --plan "$plan" status --json > "target/.pdd/results/gate-${plan}-no-policy.json"; then
+              echo 'Signed gate unexpectedly accepted a missing policy' >&2
+              exit 1
+            fi
           done
-          if PDD_REVIEW_POLICY= ./pdd-trusted --cwd target --plan validation status --json > target/.pdd/results/gate-no-policy.json; then
-            echo 'Signed gate unexpectedly accepted a missing policy' >&2
-            exit 1
-          fi
       - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: authenticated-gate-evidence
           path: |
             target/.pdd/state/validation/receipts/
+            target/.pdd/state/httpwallet/receipts/
             target/.pdd/results/gate-*.json
           include-hidden-files: true
           if-no-files-found: warn

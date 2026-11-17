@@ -41,8 +41,9 @@ pdd doctor
 On Windows, compare `Get-FileHash -Algorithm SHA256 ARCHIVE.zip` with its line
 in `SHA256SUMS`, extract the zip, and put `pdd.exe` on PATH. Checksums detect
 corruption; obtain them from the same trusted release source as the artifacts.
-macOS/Windows artifacts are cross-built; runtime validation currently covers
-Linux amd64. This project does not claim notarization or code signing.
+macOS/Windows archives are cross-built. Native CI now exercises Go/CLI workflows,
+locks and process cancellation on Linux, macOS and Windows; extracted release
+archives with the real Docker verifier are qualified on Linux amd64. This project does not claim notarization or code signing.
 
 The executable alone does not bundle Go, Docker or Gobra. Empirical checks need
 a Go toolchain on PATH; formal checks need the pinned Gobra Docker image (shown

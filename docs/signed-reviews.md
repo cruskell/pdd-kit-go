@@ -72,7 +72,7 @@ the same approval, but must pass verification again; contract changes need revie
 
 The repository's `authenticated-gate` job uses a separately pinned CLI and a public
 policy in the repository variable `PDD_REVIEW_POLICY`. It consumes the committed
-`codex-operational-test` signature and runs real slice verification repeatedly.
+`codex-operational-test` signature and runs slice and HTTP-application verification repeatedly.
 This is an explicit agent-owned qualification identity with a 90-day review, not
 a claim of human production approval. Its private key stays on the local review
 workstation, never in the repository or runner. Renew by reviewing again, exporting

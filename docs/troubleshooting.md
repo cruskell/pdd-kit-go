@@ -26,6 +26,7 @@ to `pdd-inputs-v2` requires a fresh `prove`, because the new manifest includes f
 modes and directories as well as bytes. Matching contract approvals can remain;
 any new input policy, annotation/declaration or trust change needs renewed review.
 
-Linux amd64 is the runtime-tested release platform. macOS and Windows binaries
-are cross-built; check local tools and process behavior before relying on them.
+Linux amd64 is the platform qualified with extracted release archives and the
+real Docker verifier. Native CI also runs CLI, lock and process tests on macOS
+and Windows; their Docker/local-jar setup must still be checked locally.
 The pinned Gobra adapter assumes a 64-bit host and does not support 32-bit targets.

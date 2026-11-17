@@ -42,3 +42,10 @@ set required CI checks, and observe changes, failures and incident recovery unde
 that team's workflow. No finite demo run can establish long-term operating history
 or universal support for arbitrary Go applications. Unsupported proof inputs must
 continue to fail explicitly rather than being passed off as verified libraries.
+
+Observed native qualification: [Check run 44099596974](https://github.com/cruskell/pdd-kit-go/actions/runs/44099596974)
+passed Linux, macOS and Windows race/CLI/process tests, real verifier integrations
+and the signed-authority job. The current authenticated gate covers both the
+permission-aware slice core and the HTTP wallet with three repeated proofs per
+plan. Consult the current commit's run rather than treating this historical run
+as certification of subsequent changes.

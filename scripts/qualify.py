@@ -45,7 +45,7 @@ def main():
         result = subprocess.run(prefix + list(command), capture_output=True, text=True, env=env, timeout=600)
         data = json.loads(result.stdout)
         assert data['exit_code'] == result.returncode and data['ok'] == (result.returncode == 0)
-        assert data['ok'] == success, (command, data, result.stderr)
+        assert data['ok'] == success, (command, data.get('error'), result.stderr[-4096:])
         return data.get('data')
 
     try:
