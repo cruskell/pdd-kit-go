@@ -21,8 +21,9 @@ type Execution struct {
 	Command    []string `json:"command"`
 	ExitCode   int      `json:"exit_code"`
 	Output     string   `json:"-"`
-	Detail     string   `json:"detail,omitempty"`
-	DurationMS int64    `json:"duration_ms"`
+	stdout     string
+	Detail     string `json:"detail,omitempty"`
+	DurationMS int64  `json:"duration_ms"`
 }
 type Runner interface {
 	Run(context.Context, string, Check) Execution
@@ -72,7 +73,7 @@ func (r ToolRunner) Run(ctx context.Context, root string, c Check) Execution {
 		return e
 	}
 	if c.Kind == "go-test" {
-		if err := validateTests(e.Output, c.Tests); err != nil {
+		if err := validateTests(e.stdout, c.Tests); err != nil {
 			e.Status = "failed"
 			e.Detail = err.Error()
 		}
@@ -114,14 +115,19 @@ func execute(ctx context.Context, root string, command []string, timeout time.Du
 	cmd.Dir = root
 	cmd.WaitDelay = 2 * time.Second
 	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
-	var output boundedOutput
+	var output, diagnostics boundedOutput
 	cmd.Stdout = &output
-	cmd.Stderr = &output
+	cmd.Stderr = &diagnostics
 	start := time.Now()
 	err := cmd.Run()
 	e.DurationMS = time.Since(start).Milliseconds()
-	e.Output = output.b.String()
-	if output.truncated {
+	e.stdout = output.b.String()
+	e.Output = e.stdout
+	if diagnostics.b.Len() > 0 {
+		e.Output += "\n[stderr]\n" + diagnostics.b.String()
+	}
+	truncated := output.truncated || diagnostics.truncated || len(e.Output) > 4<<20
+	if truncated {
 		e.Output += "\n[pdd: output truncated]\n"
 	}
 	if ctx.Err() != nil {
@@ -142,7 +148,7 @@ func execute(ctx context.Context, root string, command []string, timeout time.Du
 		return e
 	}
 	e.ExitCode = 0
-	if output.truncated {
+	if truncated {
 		e.Detail = "output exceeded 4 MiB; cannot safely assess result"
 		return e
 	}

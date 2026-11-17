@@ -267,3 +267,21 @@ func TestGobraIntegration(t *testing.T) {
 	}
 	fmt.Println("Gobra verified production Go and rejected deny-everyone mutant")
 }
+
+func TestGoDiagnosticsDoNotCorruptJSONEvidence(t *testing.T) {
+	if os.PathSeparator != '/' {
+		t.Skip("Unix executable wrapper fixture")
+	}
+	root, _ := fixture(t)
+	wrapper := filepath.Join(t.TempDir(), "go-wrapper")
+	// A real Go invocation can write dependency-download notices to stderr.
+	// This fixture reproduces that separate diagnostic channel without networking.
+	source := "#!/bin/sh\nprintf 'go: downloading example.org/dependency v1.0.0\\n' >&2\nprintf '%s\\n' '{\"Action\":\"pass\",\"Test\":\"TestBoundary\"}'\n"
+	if err := os.WriteFile(wrapper, []byte(source), 0755); err != nil {
+		t.Fatal(err)
+	}
+	result := ToolRunner{Go: wrapper, Timeout: time.Second}.Run(context.Background(), root, Check{Kind: "go-test", Package: ".", Tests: []string{"TestBoundary"}})
+	if result.Status != "passed" || !strings.Contains(result.Output, "downloading") {
+		t.Fatalf("stdout/stderr separation lost valid evidence or diagnostics: %+v", result)
+	}
+}
