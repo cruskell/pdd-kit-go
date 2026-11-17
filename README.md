@@ -12,6 +12,9 @@ See [authenticated review gates](docs/signed-reviews.md) and
 [production qualification](docs/production-readiness.md) for signed authority,
 native platform checks and repeatable failure/recovery testing.
 
+Install the tagged CLI with `go install github.com/cruskell/pdd-kit-go/cmd/pdd@v0.2.1`,
+or download checksummed binaries from [Releases](https://github.com/cruskell/pdd-kit-go/releases).
+
 ## Quick start
 
 The CLI uses only Go's standard library. Build with Go 1.20+ on a 64-bit host. Formal checks additionally require Docker and the pinned Gobra image, or a local Gobra jar with Java and Z3 configured.
@@ -119,7 +122,7 @@ There is no automatic fallback from failed formal verification to a green test r
 
 ## Receipts and trust
 
-Verification and approval are protected by an OS-backed project lock, automatically released when the owning process exits. Concurrent runs are rejected. `.pdd/run.json` identifies the newest run; an interrupted or incomplete newest run cannot fall back to an older success. SIGINT/SIGTERM cancellation and per-check timeouts terminate child process groups on supported Unix hosts, and the Docker backend removes its verifier container. A canceled run records negative evidence.
+Verification and approval are protected by an OS-backed project lock, automatically released when the owning process exits. Concurrent proof, approval and status operations are rejected. `.pdd/run.json` identifies the newest run; an interrupted or incomplete newest run cannot fall back to an older success. SIGINT/SIGTERM cancellation and per-check timeouts terminate child process groups on supported Unix hosts, and the Docker backend removes its verifier container. A canceled run records negative evidence.
 
 Default-plan artifacts live under `.pdd/receipts/<UTC-run-id>/` (named plans use `.pdd/state/NAME/receipts/`): `receipt.json`, `receipt.md`, `inputs.json` and per-check logs. Receipts include source/plan SHA-256 digests, reviewer assertion, commit (when present), tool identities, commands, durations, outcomes, mutation results, trust assumptions, exclusions and gaps. They are ignored by Git; CI uploads them as artifacts.
 

@@ -73,14 +73,25 @@ func TestPortableProcessHelper(t *testing.T) {
 	if role == "" {
 		return
 	}
-	if role == "parent" {
+	if role == "parent" || role == "parent-exit" || role == "parent-detached" {
 		child := exec.Command(os.Args[0], "-test.run=^TestPortableProcessHelper$")
 		child.Env = append(os.Environ(), "PDD_PROCESS_ROLE=child")
 		// Pipes are deliberately inherited to exercise cleanup of descendants.
-		child.Stdout = os.Stdout
-		child.Stderr = os.Stderr
+		if role != "parent-detached" {
+			child.Stdout = os.Stdout
+			child.Stderr = os.Stderr
+		}
 		if child.Start() != nil {
 			os.Exit(3)
+		}
+		if role != "parent" {
+			for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
+				if _, err := os.Stat(os.Getenv("PDD_PROCESS_PID")); err == nil {
+					os.Exit(0)
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			os.Exit(5)
 		}
 		_ = child.Wait()
 		return
@@ -143,5 +154,40 @@ func TestPortableProcessTimeout(t *testing.T) {
 	result := execute(context.Background(), t.TempDir(), []string{os.Args[0], "-test.run=^TestPortableProcessHelper$"}, 200*time.Millisecond)
 	if result.Status != "timeout" {
 		t.Fatalf("timeout: %+v", result)
+	}
+}
+
+func TestExitedParentCannotLeaveCheckDescendants(t *testing.T) {
+	for _, role := range []string{"parent-exit", "parent-detached"} {
+		t.Run(role, func(t *testing.T) {
+			root := t.TempDir()
+			pidFile := filepath.Join(root, "child.pid")
+			t.Setenv("PDD_PROCESS_ROLE", role)
+			t.Setenv("PDD_PROCESS_PID", pidFile)
+			result := execute(context.Background(), root, []string{os.Args[0], "-test.run=^TestPortableProcessHelper$"}, 20*time.Second)
+			data, err := os.ReadFile(pidFile)
+			if err != nil {
+				t.Fatal("child did not start", err, result)
+			}
+			pid, err := strconv.Atoi(string(data))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if processRunning(pid) {
+					child, e := os.FindProcess(pid)
+					if e == nil {
+						_ = child.Kill()
+					}
+				}
+			}()
+			for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+				if !processRunning(pid) {
+					return
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			t.Fatalf("child survived its runner parent (%s, %+v)", role, result)
+		})
 	}
 }

@@ -48,7 +48,7 @@ def main():
                "Run pdd --version and pdd --help. Go is needed for empirical tests;\n"
                "formal verification needs Docker and the pinned Gobra image (pdd doctor).\n"
                "Source, examples and full instructions:\nhttps://github.com/cruskell/pdd-kit-go\n"
-               "Approvals are unsigned reviewer assertions; read intent and trust boundaries.\n").encode()
+               "Use --policy with authorized signed reviews for production CI; read trust boundaries.\n").encode()
     for system, arch in TARGETS:
         name = "pdd.exe" if system == "windows" else "pdd"
         binary = out / name

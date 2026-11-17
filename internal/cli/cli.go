@@ -285,7 +285,7 @@ func Run(args []string, out, errOut io.Writer, version string) (exitCode int) {
 		if err != nil {
 			return printer.finish(1, nil, "execution", err, "")
 		}
-		_, latest, currentErr := pdd.StatusWithPolicy(cwd, plan, global.policy)
+		_, latest, currentErr := pdd.StatusContext(ctx, cwd, plan, global.policy)
 		current := currentErr == nil && latest == dir
 		data := receiptResult(receipt, dir, current)
 		if !global.json {
@@ -308,7 +308,7 @@ func Run(args []string, out, errOut io.Writer, version string) (exitCode int) {
 		}
 		return printer.finish(0, data, "", nil, "")
 	case "status":
-		receipt, dir, err := pdd.StatusWithPolicy(cwd, plan, global.policy)
+		receipt, dir, err := pdd.StatusContext(ctx, cwd, plan, global.policy)
 		data := receiptResult(receipt, dir, err == nil)
 		if err != nil {
 			return printer.finish(1, data, "status", err, "Run prove against the current approved plan to obtain current evidence.")

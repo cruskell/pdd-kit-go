@@ -1,6 +1,7 @@
 name: Check
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -18,8 +19,8 @@ jobs:
     steps:
       - name: Use canonical runner temporary directory
         run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: 1.27.4
           cache: false
@@ -31,8 +32,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: 1.27.4
           cache: false
@@ -76,7 +77,7 @@ jobs:
           PYTHON
       - name: Upload proof receipts
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: proof-receipts
           path: |
@@ -91,21 +92,21 @@ jobs:
     env:
       TRUSTED_REVIEW_POLICY_JSON: ${{ vars.PDD_REVIEW_POLICY }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: target
       - name: Checkout independently pinned verifier orchestration
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 148f1398b2703a7724a44a43096e42f4875a8d74
+          ref: 4fe69675096a9e270ca3b97b8563d52a7c045af0
           path: trusted-tooling
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: 1.27.4
           cache: false
       - name: Build trusted CLI
         working-directory: trusted-tooling
-        run: go build -ldflags '-X main.version=148f139-policy-gate' -o ../pdd-trusted ./cmd/pdd
+        run: go build -ldflags '-X main.version=v0.2.0-policy-gate' -o ../pdd-trusted ./cmd/pdd
       - name: Read public authority policy from independently managed repository variable
         run: |
           python3 - <<'PYTHON'
@@ -133,7 +134,7 @@ jobs:
               exit 1
             fi
           done
-      - uses: actions/upload-artifact@v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: authenticated-gate-evidence

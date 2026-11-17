@@ -431,6 +431,17 @@ func Markdown(r Receipt) string {
 // receipt was green. Receipt files are local attestations, not signed proofs.
 func Status(root string, p Plan) (Receipt, string, error) { return StatusWithPolicy(root, p, "") }
 func StatusWithPolicy(root string, p Plan, policyPath string) (Receipt, string, error) {
+	return StatusContext(context.Background(), root, p, policyPath)
+}
+func StatusContext(ctx context.Context, root string, p Plan, policyPath string) (Receipt, string, error) {
+	if err := ctx.Err(); err != nil {
+		return Receipt{}, "", err
+	}
+	unlock, err := lockProject(root)
+	if err != nil {
+		return Receipt{}, "", err
+	}
+	defer unlock()
 	var receipt Receipt
 	var dir string
 	state, stateErr := readRunState(root, p)
@@ -463,7 +474,6 @@ func StatusWithPolicy(root string, p Plan, policyPath string) (Receipt, string, 
 	if err := NoSymlinks(dir); err != nil {
 		return receipt, dir, err
 	}
-	var err error
 	if err = ReadJSON(filepath.Join(dir, "receipt.json"), &receipt); err != nil {
 		return receipt, dir, err
 	}
@@ -548,7 +558,7 @@ func StatusWithPolicy(root string, p Plan, policyPath string) (Receipt, string, 
 	if err != nil {
 		return receipt, dir, err
 	}
-	snapshot, err := CaptureContext(context.Background(), root, p.Inputs)
+	snapshot, err := CaptureContext(ctx, root, p.Inputs)
 	if err != nil {
 		return receipt, dir, err
 	}
@@ -582,26 +592,67 @@ func StatusWithPolicy(root string, p Plan, policyPath string) (Receipt, string, 
 			return receipt, dir, fmt.Errorf("input manifest does not match source digest")
 		}
 	}
-	checkLog := func(name, hash string) error {
+	checkLog := func(name, hash string) ([]byte, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if name == "" || filepath.Base(name) != name {
-			return fmt.Errorf("invalid log reference")
+			return nil, fmt.Errorf("invalid log reference")
 		}
-		b, err := readArtifact(filepath.Join(dir, name), (8<<20)+1024)
-		if err != nil || hashBytes(b) != hash {
-			return fmt.Errorf("missing or altered log %s", name)
+		data, err := readArtifact(filepath.Join(dir, name), (8<<20)+1024)
+		if err != nil || hashBytes(data) != hash {
+			return nil, fmt.Errorf("missing or altered log %s", name)
 		}
-		return nil
+		return data, nil
+	}
+	checks := map[string]Check{}
+	for _, c := range p.Checks {
+		checks[c.ID] = c
 	}
 	for _, e := range receipt.Evidence {
-		if err = checkLog(e.Log, e.LogSHA256); err != nil {
+		data, err := checkLog(e.Log, e.LogSHA256)
+		if err != nil {
 			return receipt, dir, err
 		}
-	}
-	for _, m := range receipt.Mutations {
-		if m.Log != "" {
-			if err = checkLog(m.Log, m.LogSHA256); err != nil {
-				return receipt, dir, err
+		if receipt.Success {
+			if err = validateExecutionOutput(checks[e.Check], recordedStdout(string(data)), string(data)); err != nil {
+				return receipt, dir, fmt.Errorf("saved check %s does not support success: %w", e.Check, err)
 			}
+		}
+	}
+	requirements := map[string]Requirement{}
+	for _, r := range p.Requirements {
+		requirements[r.ID] = r
+	}
+	for i, m := range receipt.Mutations {
+		if m.Log == "" && m.Status != "killed" {
+			continue
+		}
+		data, err := checkLog(m.Log, m.LogSHA256)
+		if err != nil {
+			return receipt, dir, err
+		}
+		if receipt.Success {
+			execution := m.Execution
+			execution.Output = string(data)
+			if !RejectedMutation(execution, requirements[p.Mutations[i].Requirement], snapshot.Files[p.Mutations[i].File]) {
+				return receipt, dir, fmt.Errorf("saved mutation %s does not reject its target postcondition", m.ID)
+			}
+		}
+	}
+
+	if err := ctx.Err(); err != nil {
+		return receipt, dir, err
+	}
+	// Authorization is independent of the project lock. Recheck after hashing
+	// inputs/logs so expiry or an operator policy update during status fails closed.
+	if policyPath != "" {
+		evidence, err := verifyPolicy(policyPath, p, currentApproval, time.Now().UTC())
+		if err != nil {
+			return receipt, dir, err
+		}
+		if receipt.ApprovalPolicy == nil || evidence != *receipt.ApprovalPolicy {
+			return receipt, dir, fmt.Errorf("review policy changed while checking status")
 		}
 	}
 	return receipt, dir, nil

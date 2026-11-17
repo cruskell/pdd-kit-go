@@ -2,7 +2,11 @@
 
 package pdd
 
-import "os/exec"
+import (
+	"context"
+	"os/exec"
+)
 
-func configureProcess(*exec.Cmd)      {}
-func cleanupProcess(*exec.Cmd, error) {}
+func configureProcess(*exec.Cmd, context.Context) (processControl, error) {
+	return processControl{start: func() error { return nil }, cleanup: func(error) {}}, nil
+}

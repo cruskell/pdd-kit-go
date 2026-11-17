@@ -175,7 +175,7 @@ type fakeRunner struct {
 
 func (f *fakeRunner) Run(_ context.Context, root string, c Check) Execution {
 	f.calls++
-	e := Execution{Status: "passed", ExitCode: 0, Command: []string{"test-double"}, Output: "baseline evidence"}
+	e := passedFixtureExecution(c)
 	if f.touch && f.calls == 1 {
 		_ = os.WriteFile(filepath.Join(f.root, "new.go"), []byte("package fixture\n"), 0644)
 	}
@@ -279,7 +279,7 @@ func TestGoDiagnosticsDoNotCorruptJSONEvidence(t *testing.T) {
 	wrapper := filepath.Join(t.TempDir(), "go-wrapper")
 	// A real Go invocation can write dependency-download notices to stderr.
 	// This fixture reproduces that separate diagnostic channel without networking.
-	source := "#!/bin/sh\nprintf 'go: downloading example.org/dependency v1.0.0\\n' >&2\nprintf '%s\\n' '{\"Action\":\"pass\",\"Test\":\"TestBoundary\"}'\n"
+	source := "#!/bin/sh\nprintf 'go: downloading example.org/dependency v1.0.0\\n' >&2\nprintf '%s\\n' '{\"Action\":\"pass\",\"Package\":\"fixture\",\"Test\":\"TestBoundary\"}' '{\"Action\":\"pass\",\"Package\":\"fixture\"}'\n"
 	if err := os.WriteFile(wrapper, []byte(source), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -293,4 +293,17 @@ func proofFailureOutput(file string, source []byte, ensures string) string {
 	index := strings.Index(string(source), "// @ ensures "+ensures)
 	line := strings.Count(string(source[:index]), "\n") + 1
 	return fmt.Sprintf("Error at: </workspace/%s:%d:9> Postcondition might not hold.\nAssertion %s might not hold.\n", file, line, ensures)
+}
+
+// Test doubles supply the same output shape that a saved receipt must recheck.
+func passedFixtureExecution(c Check) Execution {
+	e := Execution{Status: "passed", ExitCode: 0, Command: []string{"test-double"}, Output: "Verifying package fixture\nGobra found 0 errors.\n"}
+	if c.Kind == "go-test" {
+		e.Output = ""
+		for _, name := range c.Tests {
+			e.Output += fmt.Sprintf("{\"Action\":\"pass\",\"Package\":\"fixture\",\"Test\":%q}\n", name)
+		}
+		e.Output += "{\"Action\":\"pass\",\"Package\":\"fixture\"}\n"
+	}
+	return e
 }
