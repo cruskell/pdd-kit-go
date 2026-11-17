@@ -2,3 +2,6 @@
 /dist/
 .pdd/approval.json
 .pdd/receipts/
+
+.pdd/run.lock
+.pdd/run.json

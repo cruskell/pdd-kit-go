@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io"
@@ -39,7 +41,6 @@ type ToolRunner struct {
 }
 
 var formalPassRE = regexp.MustCompile(`(?i)Gobra found 0 errors\.`)
-var formalFailRE = regexp.MustCompile(`(?i)(postcondition.*(might not hold|might not be well-formed)|postcondition.*(violat|fail)|assertion.*might not hold)`)
 
 func (r ToolRunner) Run(ctx context.Context, root string, c Check) Execution {
 	goExe := r.Go
@@ -121,6 +122,7 @@ func execute(ctx context.Context, root string, command []string, timeout time.Du
 	defer cancel()
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.Dir = root
+	configureProcess(cmd)
 	cmd.WaitDelay = 2 * time.Second
 	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=", "GOOS="+runtime.GOOS, "GOARCH="+runtime.GOARCH)
 	var output, diagnostics boundedOutput
@@ -128,6 +130,7 @@ func execute(ctx context.Context, root string, command []string, timeout time.Du
 	cmd.Stderr = &diagnostics
 	start := time.Now()
 	err := cmd.Run()
+	cleanupProcess(cmd, err)
 	e.DurationMS = time.Since(start).Milliseconds()
 	e.stdout = output.b.String()
 	e.Output = e.stdout
@@ -140,6 +143,9 @@ func execute(ctx context.Context, root string, command []string, timeout time.Du
 	}
 	if ctx.Err() != nil {
 		e.Status = "timeout"
+		if errors.Is(ctx.Err(), context.Canceled) {
+			e.Status = "canceled"
+		}
 		e.Detail = ctx.Err().Error()
 		return e
 	}
@@ -149,6 +155,8 @@ func execute(ctx context.Context, root string, command []string, timeout time.Du
 			if e.ExitCode == 125 || e.ExitCode == 126 || e.ExitCode == 127 {
 				e.Status = "unavailable"
 			}
+		} else if errors.Is(err, exec.ErrWaitDelay) {
+			e.Status = "failed"
 		} else {
 			e.Status = "unavailable"
 		}
@@ -187,10 +195,50 @@ func validateTests(output string, names []string) error {
 	return nil
 }
 
-// RejectedMutation accepts a verifier diagnostic, never a syntax/tool failure.
-func RejectedMutation(e Execution, ensures string) bool {
-	return e.Status == "failed" && e.ExitCode != 0 && formalFailRE.MatchString(stripANSI(e.Output)) && strings.Contains(strings.Join(strings.Fields(e.Output), " "), "Assertion "+strings.Join(strings.Fields(ensures), " ")+" might not hold.")
+// RejectedMutation requires a postcondition diagnostic for the target file and
+// the exact authored clause line. Matching expression text elsewhere is not a
+// rejection of this requirement's mutant.
+func RejectedMutation(e Execution, requirement Requirement, source []byte) bool {
+	if e.Status != "failed" || e.ExitCode <= 0 {
+		return false
+	}
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, requirement.File, source, parser.ParseComments)
+	if err != nil {
+		return false
+	}
+	line := 0
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Doc == nil {
+			continue
+		}
+		name, err := symbolName(fn)
+		if err != nil || name != requirement.Function {
+			continue
+		}
+		for _, comment := range fn.Doc.List {
+			if annotation(comment.Text) == "ensures "+requirement.Ensures {
+				line = fset.Position(comment.Pos()).Line
+			}
+		}
+	}
+	if line == 0 {
+		return false
+	}
+	for _, match := range mutationDiagnosticRE.FindAllStringSubmatch(stripANSI(e.Output), -1) {
+		path := strings.ReplaceAll(match[1], "\\", "/")
+		diagnosticLine, _ := strconv.Atoi(match[2])
+		if (path == requirement.File || strings.HasSuffix(path, "/"+requirement.File)) && diagnosticLine == line && normalizedAssertion(match[3]) == normalizedAssertion(requirement.Ensures) {
+			return true
+		}
+	}
+	return false
 }
+
+var mutationDiagnosticRE = regexp.MustCompile(`(?s)Error at:\s*<([^>\n]+):([0-9]+):[0-9]+>\s*Postcondition might not hold\.\s*Assertion (.*?) might not hold\.`)
+
+func normalizedAssertion(value string) string { return strings.Join(strings.Fields(value), " ") }
 func stripANSI(s string) string {
 	return regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`).ReplaceAllString(s, "")
 }

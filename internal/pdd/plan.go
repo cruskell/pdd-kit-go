@@ -77,9 +77,23 @@ var idRE = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 var testRE = regexp.MustCompile(`^Test[A-Z0-9_][a-zA-Z0-9_]*$`)
 
 func ReadJSON(path string, v interface{}) error {
-	data, err := os.ReadFile(path)
+	if err := NoSymlinks(path); err != nil {
+		return err
+	}
+	f, err := os.Open(path)
 	if err != nil {
 		return err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, (8<<20)+1))
+	if err != nil {
+		return err
+	}
+	if len(data) > 8<<20 {
+		return fmt.Errorf("%s: JSON exceeds 8 MiB", path)
+	}
+	if err = uniqueJSONKeys(data); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
 	}
 	d := json.NewDecoder(bytes.NewReader(data))
 	d.DisallowUnknownFields()
@@ -538,6 +552,11 @@ func Digest(root string, p Plan) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 func Approve(root string, p Plan, reviewer string, accepted []string) (Approval, error) {
+	unlock, err := lockProject(root)
+	if err != nil {
+		return Approval{}, err
+	}
+	defer unlock()
 	if strings.TrimSpace(reviewer) == "" {
 		return Approval{}, fmt.Errorf("--reviewer is required; approval records an assertion, not an authenticated identity")
 	}

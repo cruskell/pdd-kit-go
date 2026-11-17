@@ -1,0 +1,39 @@
+# Practical release acceptance
+
+The target is a usable Proof-Driven Development tool for real Go repositories:
+reviewable intent and trust decisions, machine-checked Go core contracts, empirical
+checks at real I/O boundaries, reliable receipts, and repeatable local/CI operation.
+Formal and empirical guarantees must stay distinct. Supported verifier semantics
+and trusted boundaries must be stated rather than silently weakened to pass.
+
+This is the release acceptance checklist, not a completion claim. Each gate needs
+current executable evidence and documentation before it is checked off.
+
+| Gate | Required evidence | State |
+| --- | --- | --- |
+| Verification integrity | Missing/skipped tests, missing tools, failed contracts, unrelated mutant errors and changed inputs cannot produce success | In progress |
+| Run lifecycle | Concurrent runs cannot corrupt state; cancellation terminates child processes; interrupted newest runs never reuse an older green receipt | Verified locally on Linux; release/CI audit pending |
+| Repository inputs | Bounded snapshots work with ordinary repository assets and configurable exclusions without omitting verified source | Pending |
+| Everyday workflow | Multiple named plans, reviewable approval changes, stable machine-readable output and actionable failure reports | Pending |
+| Go application integration | A runnable HTTP application with formally checked production logic and empirical tests of real handlers/trusted boundaries | Pending |
+| CI adoption | Reviewed approval is preserved; CI never auto-approves production intent; full verification and receipts run on changes | Pending |
+| Distribution | Versioned reproducible builds, checksums, install/use instructions and clean-checkout smoke tests | Pending |
+| Documentation | Supported Go scope, trust model, examples, migration and troubleshooting are accurate and usable | Pending |
+| Final audit | All gates above verified against the final commit; regression, race, verifier and CI checks pass | Pending |
+
+The initial login and local-package authorization demonstrations remain useful
+regressions. They do not alone prove practical readiness of the whole tool or a
+real HTTP application. Test doubles exercise orchestration; real Gobra runs must
+cover the shipped annotated Go and mutant rejection.
+
+## Lifecycle evidence
+
+`internal/pdd/lifecycle_test.go` exercises concurrent proof/approval rejection,
+newest-run interruption and recovery, legacy unfinished receipts, canceled-run
+receipts, ambiguous JSON, and diagnostic binding to the exact mutated clause.
+`internal/pdd/process_linux_test.go` uses real subprocesses to check process-tree
+cancellation, timeouts, and kernel-lock recovery after SIGKILL. Windows and macOS
+binaries are cross-built; their runtime behavior is not claimed as tested.
+
+These reliability checks do not close the remaining repository-input, workflow,
+application, CI adoption, distribution or documentation gates above.

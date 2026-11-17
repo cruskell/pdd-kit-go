@@ -1,6 +1,6 @@
 # Plan format (schema 1)
 
-`.pdd/plan.json` is the reviewed intent artifact. Unknown JSON fields are rejected. The CLI reads only this file; changing the plan never silently changes the implementation.
+`.pdd/plan.json` is the reviewed intent artifact. Unknown JSON fields and repeated keys (including equivalent case variants) are rejected. JSON artifacts are limited to 8 MiB. The CLI reads only this file; changing the plan never silently changes the implementation.
 
 The [login example](../examples/login/plan.json) is a complete plan. Identifiers start with a lowercase letter and contain lowercase letters, digits and hyphens. IDs are unique across requirements, checks, trust assumptions and mutations.
 
@@ -32,7 +32,7 @@ Each trust item has `id`, `assumption`, and `check`; the check must be empirical
 
 Each mutation has `id`, `requirement`, `check`, `file`, `find`, and `replace`. The check and file must match the formal requirement. `find` must occur exactly once, wholly inside the named function's body. The replacement must differ, remain parseable Go, and retain the same proof annotations and declarations. Type-invalid mutations may pass plan lint but will be inconclusive when Gobra runs; they cannot count as killed mutants.
 
-Mutations execute on separate snapshots. A mutant is killed only when Gobra returns nonzero with a postcondition diagnostic and the expected clause's `Assertion ... might not hold.` text. A different diagnostic format is conservatively inconclusive. This parser is tested against the pinned Gobra image; local jars with other formats may require a future adapter update.
+Mutations execute on separate snapshots. A mutant is killed only when Gobra returns nonzero with a postcondition diagnostic and the expected clause's `Assertion ... might not hold.` text at the target file and exact authored postcondition line. A failure at an identical expression in another function is not accepted. A different diagnostic format is conservatively inconclusive. This parser is tested against the pinned Gobra image; local jars with other formats may require a future adapter update.
 
 ## Approval and freshness
 

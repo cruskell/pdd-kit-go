@@ -92,13 +92,15 @@ This selects a different demonstration and invalidates the previous plan's appro
 - A formal requirement maps to an exact `ensures` clause on a named production function or receiver-qualified method, with at least one negative mutation.
 - All Gobra checks exit successfully and emit a verification-run success summary. Overflow and injectivity checks are enabled; the adapter uses Gobra's 64-bit integer semantics.
 - Every named empirical Go test actually executes and passes. Missing, skipped, cached-only or empty test runs are not evidence. Checks use `-count=1`.
-- Every formal mutation is valid Go, changes only the target function body, preserves the approved contract, and is rejected on the target postcondition. A parse failure, timeout or missing tool is inconclusive and fails the run.
+- Every formal mutation is valid Go, changes only the target function body, preserves the approved contract, and is rejected on the target postcondition. The diagnostic must point to the target source file and its exact postcondition line. A parse failure, timeout, unrelated clause failure or missing tool is inconclusive and fails the run.
 - Every trust assumption has an empirical check and was explicitly accepted. Tests support assumptions on exercised cases; they do not prove them.
 - Source, plan and approval remain current. A changed file makes an old receipt stale. A changed plan, function signature, proof annotation, imported declaration or pure specification helper requires review again.
 
 There is no automatic fallback from failed formal verification to a green test result. Receipts label formal proof and empirical evidence separately.
 
 ## Receipts and trust
+
+Verification and approval are protected by an OS-backed project lock, automatically released when the owning process exits. Concurrent runs are rejected. `.pdd/run.json` identifies the newest run; an interrupted or incomplete newest run cannot fall back to an older success. SIGINT/SIGTERM cancellation and per-check timeouts terminate child process groups on supported Unix hosts, and the Docker backend removes its verifier container. A canceled run records negative evidence.
 
 Generated artifacts live under `.pdd/receipts/<UTC-run-id>/`: `receipt.json`, `receipt.md` and per-check logs. Receipts include source/plan SHA-256 digests, reviewer assertion, commit (when present), tool identities, commands, durations, outcomes, mutation results, trust assumptions, exclusions and gaps. They are ignored by Git; CI uploads them as artifacts.
 
@@ -129,4 +131,4 @@ PDD_INTEGRATION=1 go test ./internal/pdd -run 'TestGobra.*Integration' -v -count
 
 The integration tests invoke the real pinned Gobra image, compile/run Go boundary tests, verify an importing handler and a separate policy package with a value-receiver method, and reject deliberately wrong production implementations. GitHub Actions runs unit/race tests and that integration test, then generates and uploads the demo receipt. CI approval is explicitly named `ci-demo`; it is a reproducibility exercise, not a human approval of a production specification.
 
-[Design and source references](docs/design.md) · [MIT license](LICENSE)
+[Practical release checklist](docs/practical-readiness.md) · [Design and source references](docs/design.md) · [MIT license](LICENSE)

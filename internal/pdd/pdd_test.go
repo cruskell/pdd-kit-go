@@ -157,7 +157,7 @@ func TestToolFailuresAreNotProof(t *testing.T) {
 		t.Fatalf("missing tool: %+v", got)
 	}
 	for _, e := range []Execution{{Status: "timeout", ExitCode: -1}, {Status: "failed", ExitCode: 1, Output: "syntax error"}, {Status: "failed", ExitCode: 1, Output: "Postcondition might not hold. Assertion unrelated might not hold."}} {
-		if RejectedMutation(e, "result == true") {
+		if RejectedMutation(e, Requirement{File: "core.go", Function: "Decide", Ensures: "result == (present && matches && !locked)"}, []byte(coreSource)) {
 			t.Fatal("tool/parse/unrelated failure counted as killed mutant")
 		}
 	}
@@ -180,7 +180,7 @@ func (f *fakeRunner) Run(_ context.Context, root string, c Check) Execution {
 	if strings.Contains(string(b), "return false") && !f.survive {
 		e.Status = "failed"
 		e.ExitCode = 1
-		e.Output = "Postcondition might not hold. Assertion result == (present && matches && !locked) might not hold."
+		e.Output = proofFailureOutput("core.go", b, "result == (present && matches && !locked)")
 	}
 	return e
 }
@@ -284,4 +284,10 @@ func TestGoDiagnosticsDoNotCorruptJSONEvidence(t *testing.T) {
 	if result.Status != "passed" || !strings.Contains(result.Output, "downloading") {
 		t.Fatalf("stdout/stderr separation lost valid evidence or diagnostics: %+v", result)
 	}
+}
+
+func proofFailureOutput(file string, source []byte, ensures string) string {
+	index := strings.Index(string(source), "// @ ensures "+ensures)
+	line := strings.Count(string(source[:index]), "\n") + 1
+	return fmt.Sprintf("Error at: </workspace/%s:%d:9> Postcondition might not hold.\nAssertion %s might not hold.\n", file, line, ensures)
 }

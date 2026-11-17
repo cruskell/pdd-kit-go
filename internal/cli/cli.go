@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/cruskell/pdd-kit-go/internal/pdd"
@@ -108,7 +109,7 @@ func Run(args []string, out, errOut io.Writer, version string) int {
 		return 2
 	}
 	fail := func(err error) int { fmt.Fprintln(errOut, "error:", err); return 1 }
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if rest[0] == "doctor" {
 		good := true

@@ -224,17 +224,17 @@ func (r *dependencyRunner) Run(_ context.Context, root string, c Check) Executio
 	if c.ID == "policy-proof" && mutatedPolicy && r.mode != "mutant-survived" {
 		e.Status = "failed"
 		e.ExitCode = 1
-		e.Output = "Postcondition might not hold. Assertion allowed == (p.Enabled && age >= p.MinimumAge && !locked) might not hold."
+		e.Output = proofFailureOutput("policy/policy.go", policy, "allowed == (p.Enabled && age >= p.MinimumAge && !locked)")
 	}
 	if c.ID == "policy-proof" && strings.Contains(string(pointer), "return !p.Enabled") && r.mode != "mutant-survived" {
 		e.Status = "failed"
 		e.ExitCode = 1
-		e.Output = "Postcondition might not hold. Assertion enabled == p.Enabled might not hold."
+		e.Output = proofFailureOutput("policy/pointer.go", pointer, "enabled == p.Enabled")
 	}
 	if c.ID == "handler-proof" && mutatedHandler {
 		e.Status = "failed"
 		e.ExitCode = 1
-		e.Output = "Postcondition might not hold. Assertion result == (enabled && age >= minimum && !locked) might not hold."
+		e.Output = proofFailureOutput("handler/handler.go", handler, "result == (enabled && age >= minimum && !locked)")
 	}
 	return e
 }

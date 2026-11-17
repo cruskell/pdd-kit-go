@@ -64,6 +64,11 @@ type Options struct {
 // mutants and changes during verification all fail closed and produce a receipt.
 func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, string, error) {
 	receipt := Receipt{Schema: 1, Version: options.Version, StartedAt: time.Now().UTC(), Evidence: []Evidence{}, Mutations: []MutationResult{}, Requirements: []Verdict{}, Trust: p.Trust, NonGoals: p.NonGoals, Gaps: []string{}, Tools: options.Tools}
+	unlock, lockErr := lockProject(root)
+	if lockErr != nil {
+		return receipt, "", lockErr
+	}
+	defer unlock()
 	if err := p.Validate(root); err != nil {
 		return receipt, "", err
 	}
@@ -103,6 +108,19 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 	if err = os.MkdirAll(dir, 0755); err != nil {
 		return receipt, "", err
 	}
+	state := RunState{Schema: 1, ID: filepath.Base(dir), State: "running", StartedAt: receipt.StartedAt}
+	if err = WriteJSON(filepath.Join(root, runStatePath), state); err != nil {
+		return receipt, "", err
+	}
+	completed := false
+	defer func() {
+		if !completed {
+			state.State = "interrupted"
+			state.FinishedAt = time.Now().UTC()
+			state.Detail = "verification exited without a completed receipt"
+			_ = WriteJSON(filepath.Join(root, runStatePath), state)
+		}
+	}()
 	scratch, err := os.MkdirTemp("", "pdd-baseline-")
 	if err != nil {
 		return receipt, "", err
@@ -144,7 +162,11 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 		}
 		e := Execution{Status: "blocked", ExitCode: -1, Detail: "unproven dependencies: " + strings.Join(blocked, ", ")}
 		if len(blocked) == 0 {
-			e = runner.Run(ctx, scratch, c)
+			if ctx.Err() != nil {
+				e = Execution{Status: "canceled", ExitCode: -1, Detail: ctx.Err().Error()}
+			} else {
+				e = runner.Run(ctx, scratch, c)
+			}
 		}
 		after, captureErr := Capture(scratch)
 		if captureErr != nil || after.Hash != source.Hash {
@@ -174,7 +196,7 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 	killed := map[string]bool{}
 	for _, m := range p.Mutations {
 		mr := MutationResult{ID: m.ID, Requirement: m.Requirement, Status: "not-run"}
-		if executions[m.Check].Status == "passed" {
+		if executions[m.Check].Status == "passed" && ctx.Err() == nil {
 			progress("Mutating " + m.ID)
 			temp, err := os.MkdirTemp("", "pdd-mutant-")
 			if err != nil {
@@ -197,7 +219,7 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 			mr.Status = "inconclusive"
 			if mr.Execution.Status == "passed" {
 				mr.Status = "survived"
-			} else if RejectedMutation(mr.Execution, reqs[m.Requirement].Ensures) {
+			} else if RejectedMutation(mr.Execution, reqs[m.Requirement], source.Files[m.File]) {
 				mr.Status = "killed"
 			}
 			mr.Log, mr.LogSHA256, err = saveLog(m.ID, mr.Execution)
@@ -263,6 +285,12 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 	if CheckApproval(root, p) != nil || approvalErr != nil || !sameApproval(receipt.Approval, finalApproval) {
 		receipt.Gaps = append(receipt.Gaps, "approval changed during verification")
 	}
+	if ctx.Err() != nil {
+		receipt.Gaps = append(receipt.Gaps, "verification canceled: "+ctx.Err().Error())
+		for i := range receipt.Requirements {
+			receipt.Requirements[i].Status = "unproven"
+		}
+	}
 	receipt.Success = len(receipt.Gaps) == 0
 	receipt.FinishedAt = time.Now().UTC()
 	if !receipt.Success {
@@ -278,6 +306,12 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 	if err = AtomicWrite(filepath.Join(dir, "receipt.md"), []byte(Markdown(receipt))); err != nil {
 		return receipt, "", err
 	}
+	state.State = "completed"
+	state.FinishedAt = receipt.FinishedAt
+	if err = WriteJSON(filepath.Join(root, runStatePath), state); err != nil {
+		return receipt, "", err
+	}
+	completed = true
 	return receipt, dir, nil
 }
 func hashBytes(b []byte) string { sum := sha256.Sum256(b); return hex.EncodeToString(sum[:]) }
@@ -333,28 +367,38 @@ func Markdown(r Receipt) string {
 // receipt was green. Receipt files are local attestations, not signed proofs.
 func Status(root string, p Plan) (Receipt, string, error) {
 	var receipt Receipt
-	entries, err := os.ReadDir(filepath.Join(root, ".pdd", "receipts"))
-	if err != nil {
-		return receipt, "", fmt.Errorf("no receipt: %w", err)
-	}
-	var dirs []string
-	for _, e := range entries {
-		if e.IsDir() {
-			dirs = append(dirs, e.Name())
-		}
-	}
-	sort.Sort(sort.Reverse(sort.StringSlice(dirs)))
 	var dir string
-	for _, d := range dirs {
-		candidate := filepath.Join(root, ".pdd", "receipts", d)
-		if _, err := os.Stat(filepath.Join(candidate, "receipt.json")); err == nil {
-			dir = candidate
-			break
+	state, stateErr := readRunState(root)
+	if stateErr == nil {
+		dir = filepath.Join(root, ".pdd", "receipts", state.ID)
+		if state.State != "completed" {
+			return receipt, dir, fmt.Errorf("latest verification is incomplete or interrupted (%s): %s", state.State, state.Detail)
 		}
+	} else if !os.IsNotExist(stateErr) {
+		return receipt, "", stateErr
+	} else {
+		// Legacy receipts have no latest-run record. An unfinished newest
+		// directory is still not permission to return an older green result.
+		entries, err := os.ReadDir(filepath.Join(root, ".pdd", "receipts"))
+		if err != nil {
+			return receipt, "", fmt.Errorf("no receipt: %w", err)
+		}
+		var dirs []string
+		for _, entry := range entries {
+			if entry.IsDir() {
+				dirs = append(dirs, entry.Name())
+			}
+		}
+		sort.Sort(sort.Reverse(sort.StringSlice(dirs)))
+		if len(dirs) == 0 {
+			return receipt, "", fmt.Errorf("no completed receipt")
+		}
+		dir = filepath.Join(root, ".pdd", "receipts", dirs[0])
 	}
-	if dir == "" {
-		return receipt, "", fmt.Errorf("no completed receipt")
+	if err := NoSymlinks(dir); err != nil {
+		return receipt, dir, err
 	}
+	var err error
 	if err = ReadJSON(filepath.Join(dir, "receipt.json"), &receipt); err != nil {
 		return receipt, dir, err
 	}
@@ -364,6 +408,9 @@ func Status(root string, p Plan) (Receipt, string, error) {
 	var currentApproval Approval
 	if err = ReadJSON(filepath.Join(root, ApprovalPath), &currentApproval); err != nil || !sameApproval(receipt.Approval, currentApproval) {
 		return receipt, dir, fmt.Errorf("stale receipt: approval record changed")
+	}
+	if stateErr == nil && (!receipt.StartedAt.Equal(state.StartedAt) || !receipt.FinishedAt.Equal(state.FinishedAt)) {
+		return receipt, dir, fmt.Errorf("latest-run record does not match its receipt")
 	}
 	if receipt.Schema != 1 || receipt.FinishedAt.IsZero() {
 		return receipt, dir, fmt.Errorf("invalid or unfinished receipt")
