@@ -1,0 +1,13 @@
+# Using the kit with a coding agent
+
+Give your coding agent the following workflow with the task. The deterministic CLI gates are usable with Codex, Claude Code or another agent; no provider API or credentials are needed.
+
+1. Read the relevant Go entry points, implementation and tests. Identify the behavior to prove, both its success and refusal cases, and consequential ambiguities. Ask the developer to settle those ambiguities before changing intended guarantees.
+2. Draft `.pdd/plan.json`: plain-language intent, requirements, explicit exclusions, proof/empirical classification, named checks, trust assumptions and at least one body mutation per formal clause. Add matching `// @` contracts to production Go files. Keep external database, crypto and network behavior behind explicit input assumptions in this first adapter.
+3. Run `pdd lint` and `pdd plan`. Present the concrete plan and trusted assumptions to the developer. A plan that rejects all requests can satisfy a rejection-only clause: include the desired acceptance direction when appropriate.
+4. The reviewer records acceptance with `pdd approve --reviewer NAME --accept-tcb ID,...`. Do not impersonate the developer or automatically approve a plan you drafted. The CLI records an assertion; the organization must supply any real identity or approval policy.
+5. Implement the body against the frozen contract. Run `pdd prove`. Fix implementation failures without weakening approved annotations. A contract contradiction or newly discovered trust assumption returns to planning and review.
+6. Inspect every gap. Missing tools, skipped tests, surviving mutants and inconclusive verifier failures are unfinished verification. Keep implementation gaps separate from evidence gaps. A test result is empirical evidence, not formal proof.
+7. Deliver the receipt, source/plan digests, covered clauses, trust assumptions, mutation results and limitations. Put `pdd prove` in CI after an appropriate plan-review gate. Re-run after any source change; `pdd status` rejects stale evidence.
+
+For stronger human/agent separation, use an independent reviewer with read-only access to intent, annotations and receipts. The current CLI does not enforce agent identities or supply a reviewer model.

@@ -1,0 +1,47 @@
+name: Check
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - run: test -z "$(gofmt -l cmd internal examples)"
+      - run: go test -race ./...
+      - run: go vet ./...
+      - run: go build -o bin/pdd ./cmd/pdd
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - name: Pull pinned Gobra
+        run: docker pull ghcr.io/viperproject/gobra@sha256:5e96431b06c2e6209aa767df9153bb4cf8b2620598598f1d7d3f3a74c09c14f9
+      - name: Real verifier integration
+        run: PDD_INTEGRATION=1 go test ./internal/pdd -run TestGobraIntegration -v -count=1
+      - run: go build -o bin/pdd ./cmd/pdd
+      - run: bin/pdd lint
+      - name: Record demo-only approval (not production review)
+        run: bin/pdd approve --reviewer ci-demo --accept-tcb identity-inputs
+      - name: Prove demo and check mutations
+        run: bin/pdd prove
+      - run: bin/pdd status
+      - name: Upload proof receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proof-receipts
+          path: .pdd/receipts/
+          if-no-files-found: warn

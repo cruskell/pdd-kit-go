@@ -1,0 +1,4 @@
+/bin/
+/dist/
+.pdd/approval.json
+.pdd/receipts/
