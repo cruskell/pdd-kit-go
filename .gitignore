@@ -7,3 +7,5 @@
 .pdd/run.json
 
 .pdd/state/
+.pdd/results/
+.pdd/*-result.json
