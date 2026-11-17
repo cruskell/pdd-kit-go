@@ -35,14 +35,28 @@ jobs:
       - run: bin/pdd lint
       - name: Record demo-only approval (not production review)
         run: bin/pdd approve --reviewer ci-demo --accept-tcb identity-inputs
-      - name: Prove demo and check mutations
-        run: bin/pdd prove
-      - run: bin/pdd status
+      - name: Prove demo and check mutations through the JSON API
+        run: bin/pdd prove --json > .pdd/prove-result.json
+      - name: Check current machine-readable result
+        run: |
+          bin/pdd status --json > .pdd/status-result.json
+          python3 - <<'PYTHON'
+          import json
+          for name in ('prove', 'status'):
+              with open(f'.pdd/{name}-result.json') as file:
+                  result = json.load(file)
+              assert result['schema'] == 1 and result['command'] == name
+              assert result['ok'] is True and result['exit_code'] == 0
+              assert result['plan'] == 'default' and result['data']['current'] is True
+              assert result['data']['receipt']['success'] is True
+          PYTHON
       - name: Upload proof receipts
         if: always()
         uses: actions/upload-artifact@v7.0.2
         with:
           name: proof-receipts
-          path: .pdd/receipts/
+          path: |
+            .pdd/receipts/
+            .pdd/*-result.json
           if-no-files-found: warn
           include-hidden-files: true

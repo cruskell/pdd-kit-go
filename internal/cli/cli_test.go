@@ -2,7 +2,10 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -45,5 +48,154 @@ func TestUsageAndDraftWorkflow(t *testing.T) {
 	}
 	if run("--version") != 0 || out.String() != "test\n" {
 		t.Fatal("version")
+	}
+}
+
+func decodeResponse(t *testing.T, out *bytes.Buffer, code int) Response {
+	t.Helper()
+	decoder := json.NewDecoder(bytes.NewReader(out.Bytes()))
+	decoder.DisallowUnknownFields()
+	var response Response
+	if err := decoder.Decode(&response); err != nil {
+		t.Fatalf("invalid JSON response: %v\n%s", err, out.String())
+	}
+	var extra interface{}
+	if err := decoder.Decode(&extra); err != io.EOF {
+		t.Fatalf("stdout contains extra output: %s", out.String())
+	}
+	if response.Schema != 1 || response.ExitCode != code || response.OK != (code == 0) {
+		t.Fatalf("response disagrees with process outcome: %+v code=%d", response, code)
+	}
+	return response
+}
+func TestJSONSuccessFailureAndNamedScaffolds(t *testing.T) {
+	root := t.TempDir()
+	var out, diagnostics bytes.Buffer
+	run := func(args ...string) (int, Response) {
+		t.Helper()
+		out.Reset()
+		diagnostics.Reset()
+		code := Run(append([]string{"--cwd", root, "--json"}, args...), &out, &diagnostics, "test")
+		return code, decodeResponse(t, &out, code)
+	}
+	code, response := run("--plan", "billing", "init")
+	if code != 0 || response.Plan != "billing" {
+		t.Fatal(response)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".pdd/plans/billing.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".pdd/plan.json")); !os.IsNotExist(err) {
+		t.Fatal("named init touched the default plan")
+	}
+	for _, args := range [][]string{{"--plan", "billing", "init"}, {"--plan", "billing", "lint"}, {"--plan", "billing", "approve", "--reviewer", "test"}, {"--plan", "billing", "prove"}, {"--plan", "missing", "status"}} {
+		code, response = run(args...)
+		if code != 1 || response.Error == nil {
+			t.Fatalf("expected structured failure: %+v", response)
+		}
+	}
+	for _, args := range [][]string{{"unknown"}, {"lint", "--unknown"}, {"--plan", "../escape", "init"}, {"prove", "--timeout", "invalid"}} {
+		code, response = run(args...)
+		if code != 2 || response.Error == nil || response.Error.Kind != "usage" {
+			t.Fatalf("expected usage failure: %+v", response)
+		}
+	}
+	code, response = run("plans")
+	if code != 0 {
+		t.Fatal(response)
+	}
+	data := response.Data.([]interface{})
+	if len(data) != 1 || data[0].(map[string]interface{})["valid"] != false {
+		t.Fatal("invalid draft was hidden from plan inventory")
+	}
+	code, response = run("--version")
+	if code != 0 || response.Command != "version" {
+		t.Fatal(response)
+	}
+	code, response = run("--help")
+	if code != 0 || response.Command != "help" {
+		t.Fatal(response)
+	}
+}
+func TestGlobalsDoNotConsumeCommandOptionValues(t *testing.T) {
+	globals, args, err := parseGlobals([]string{"approve", "--reviewer", "--json", "--plan", "auth"}, "/work")
+	if err != nil || globals.json || globals.plan != "auth" || len(args) != 3 || args[2] != "--json" {
+		t.Fatalf("command value reinterpreted as a flag: %+v %v %v", globals, args, err)
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+func TestBrokenOutputCannotReportSuccess(t *testing.T) {
+	for _, args := range [][]string{{"--version"}, {"--json", "--version"}} {
+		if code := Run(args, failingWriter{}, io.Discard, "test"); code != 1 {
+			t.Fatal("output write failure returned success")
+		}
+	}
+}
+
+func TestMachineReadableEmpiricalWorkflowEndToEnd(t *testing.T) {
+	root := t.TempDir()
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, path), []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module fixture\n\ngo 1.20\n")
+	write("core.go", "package fixture\nfunc Allowed(value bool) bool { return value }\n")
+	write("core_test.go", "package fixture\nimport \"testing\"\nfunc TestEvidence(t *testing.T) { if !Allowed(true)||Allowed(false){t.Fatal(\"incorrect decision\")} }\n")
+	write("template.json", `{"schema":1,"name":"CLI smoke","intent":"The decision preserves its boolean input.","non_goals":["Formal verification"],"requirements":[{"id":"decision","text":"The production function preserves its input on the checked cases.","kind":"empirical","check":"tests"}],"checks":[{"id":"tests","kind":"go-test","package":".","tests":["TestEvidence"]}],"trusted_boundary":[],"mutations":[]}`)
+	var out, diagnostics bytes.Buffer
+	run := func(args ...string) (int, Response) {
+		t.Helper()
+		out.Reset()
+		diagnostics.Reset()
+		code := Run(append([]string{"--cwd", root, "--plan", "smoke", "--json"}, args...), &out, &diagnostics, "test")
+		return code, decodeResponse(t, &out, code)
+	}
+	code, response := run("init", "--from", "template.json")
+	if code != 0 {
+		t.Fatal(response)
+	}
+	code, response = run("plan")
+	if code != 0 {
+		t.Fatal(response)
+	}
+	digest := response.Data.(map[string]interface{})["digest"].(string)
+	code, response = run("approve", "--reviewer", "cli-smoke", "--expect-digest", digest)
+	if code != 0 {
+		t.Fatal(response)
+	}
+	goBinary, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, response = run("prove", "--go", goBinary)
+	if code != 0 {
+		t.Fatalf("prove: %+v\n%s", response, diagnostics.String())
+	}
+	data := response.Data.(map[string]interface{})
+	receipt := data["receipt"].(map[string]interface{})
+	if receipt["plan_id"] != "smoke" || receipt["success"] != true {
+		t.Fatal("receipt lost selected plan identity or success")
+	}
+	code, response = run("status")
+	if code != 0 {
+		t.Fatal(response)
+	}
+	write("core.go", "package fixture\nfunc Allowed(value bool) bool { return false }\n")
+	code, response = run("status")
+	if code != 1 || response.Error.Kind != "status" || response.Data.(map[string]interface{})["current"] != false {
+		t.Fatalf("stale receipt reported as current: %+v", response)
+	}
+	code, response = run("prove", "--go", goBinary)
+	if code != 1 || response.Error.Kind != "verification" {
+		t.Fatalf("broken production behavior did not fail verification: %+v", response)
+	}
+	code, response = run("status")
+	if code != 1 || response.Error.Kind != "verification" || response.Data.(map[string]interface{})["current"] != true {
+		t.Fatalf("current negative evidence was not inspectable: %+v", response)
 	}
 }

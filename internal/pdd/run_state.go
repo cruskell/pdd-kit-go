@@ -9,6 +9,7 @@ import (
 const runStatePath = ".pdd/run.json"
 
 type RunState struct {
+	PlanID     string    `json:"plan_id,omitempty"`
 	Schema     int       `json:"schema"`
 	ID         string    `json:"id"`
 	State      string    `json:"state"` // running, completed, interrupted
@@ -17,13 +18,17 @@ type RunState struct {
 	Detail     string    `json:"detail,omitempty"`
 }
 
-func readRunState(root string) (RunState, error) {
+func readRunState(root string, plans ...Plan) (RunState, error) {
+	var p Plan
+	if len(plans) > 0 {
+		p = plans[0]
+	}
 	var state RunState
-	err := ReadJSON(filepath.Join(root, runStatePath), &state)
+	err := ReadJSON(filepath.Join(root, p.stateFile("run.json")), &state)
 	if err != nil {
 		return state, err
 	}
-	if state.Schema != 1 || state.ID == "" || filepath.Base(state.ID) != state.ID || state.StartedAt.IsZero() {
+	if state.Schema != 1 || !matchesPlanID(state.PlanID, p) || state.ID == "" || filepath.Base(state.ID) != state.ID || state.StartedAt.IsZero() {
 		return state, fmt.Errorf("invalid latest-run record")
 	}
 	if state.State != "running" && state.State != "completed" && state.State != "interrupted" {

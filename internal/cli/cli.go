@@ -19,238 +19,312 @@ import (
 
 const help = `pdd — Proof-Driven Development for Go
 
-Usage: pdd [--cwd DIR] <command> [options]
+Usage: pdd [--cwd DIR] [--plan NAME] [--json] <command> [options]
 
-  init       Create an unapproved .pdd/plan.json scaffold
-  plan       Review intent, clauses, checks, mutations and trusted boundaries
-  lint       Validate the plan and its production Go contract mappings
+  init       Create an unapproved plan scaffold without overwriting a plan
+  plans      List valid and invalid plans in this project
+  plan       Review intent, contracts, checks and trust; --diff shows changes
+  lint       Validate the selected plan and production Go contract mappings
   approve    Record review: --reviewer NAME [--accept-tcb id1,id2]
-  prove      Run Gobra proofs, named Go tests and negative mutations
-  status     Check whether the latest receipt is successful and current
-  doctor     Check local Go and Docker/Java prerequisites
+  prove      Run approved Gobra proofs, named Go tests and negative mutations
+  status     Check whether this plan's latest receipt is current and successful
+  doctor     Check Go and Docker/Java prerequisites
 
-Global: --cwd DIR, --version, --help
-prove: --go PATH --gobra-jar PATH --timeout 2m
-       Default Gobra backend: pinned Docker image; missing tools fail closed.
-       This executes project tests in scratch copies, without OS sandboxing.
-approve: --reviewer NAME --accept-tcb ID[,ID...]
-         Records an explicit local assertion; does not authenticate identity.
-
-Start with init, or copy examples/login/plan.json into .pdd/plan.json
-in this repository for a runnable demo. Edit and review the plan before approve.
+Global: --cwd DIR, --plan NAME (default: default), --json, --version, --help
+Named plans: .pdd/plans/NAME.json; state: .pdd/state/NAME/
+The default plan keeps .pdd/plan.json and .pdd/approval.json.
+init:       --from PATH (optional; imports a plan without executing it)
+plan:       --diff
+approve:    --reviewer NAME --accept-tcb ID[,ID...] --expect-digest SHA256
+            Review plan --json first; --expect-digest guards review-time changes.
+prove:      --go PATH --gobra-jar PATH --timeout 2m
+            Default backend: pinned Gobra Docker image. Missing tools fail closed.
+            Project tests run in scratch copies with host user permissions.
+--json:     One schema-1 response on stdout, progress on stderr; check ok/exit_code.
+Approval records a local assertion; it does not authenticate reviewer identity.
 `
 
-func Run(args []string, out, errOut io.Writer, version string) int {
-	cwd, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintln(errOut, err)
-		return 1
+func Run(args []string, out, errOut io.Writer, version string) (exitCode int) {
+	writer := &checkedWriter{writer: out}
+	out = writer
+	defer func() {
+		if writer.err != nil {
+			fmt.Fprintln(errOut, "error writing command output:", writer.err)
+			exitCode = 1
+		}
+	}()
+	cwd, workingDirectoryErr := os.Getwd()
+	global, rest, parseErr := parseGlobals(args, cwd)
+	command := "help"
+	if len(rest) > 0 {
+		command = rest[0]
 	}
-	var rest []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--cwd" || a == "-C" {
-			if i+1 >= len(args) {
-				fmt.Fprintln(errOut, "--cwd requires a directory")
-				return 2
-			}
-			i++
-			cwd = args[i]
-		} else if strings.HasPrefix(a, "--cwd=") {
-			cwd = strings.TrimPrefix(a, "--cwd=")
-		} else {
-			rest = append(rest, a)
+	printer := output{json: global.json, out: out, diagnostics: errOut, command: command, plan: global.plan}
+	if parseErr != nil {
+		return printer.finish(2, nil, "usage", parseErr, "")
+	}
+	paths, err := pdd.PathsFor(global.plan)
+	if err != nil {
+		return printer.finish(2, nil, "usage", err, "")
+	}
+	printer.plan = paths.Name
+	if len(rest) == 0 || command == "--help" || command == "-h" || command == "help" {
+		printer.command = "help"
+		if !global.json {
+			fmt.Fprint(out, help)
+		}
+		return printer.finish(0, map[string]string{"help": help}, "", nil, "")
+	}
+	if command == "--version" {
+		printer.command = "version"
+		if len(rest) > 1 {
+			return printer.finish(2, nil, "usage", fmt.Errorf("unexpected arguments after --version"), "")
+		}
+		if !global.json {
+			fmt.Fprintln(out, version)
+		}
+		return printer.finish(0, map[string]string{"version": version}, "", nil, "")
+	}
+	if workingDirectoryErr != nil && global.cwd == "" {
+		return printer.finish(1, nil, "io", workingDirectoryErr, "Pass an absolute --cwd path to an existing project.")
+	}
+	cwd, err = filepath.Abs(global.cwd)
+	if err != nil {
+		return printer.finish(2, nil, "usage", err, "")
+	}
+	stat, err := os.Stat(cwd)
+	if err != nil || !stat.IsDir() {
+		return printer.finish(2, nil, "usage", fmt.Errorf("--cwd must name an existing directory"), "")
+	}
+	fs := flag.NewFlagSet(command, flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	fs.Usage = func() {
+		if !global.json {
+			fmt.Fprint(out, help)
 		}
 	}
-	if len(rest) == 0 || rest[0] == "--help" || rest[0] == "-h" || rest[0] == "help" {
-		fmt.Fprint(out, help)
-		return 0
-	}
-	if rest[0] == "--version" {
-		fmt.Fprintln(out, version)
-		return 0
-	}
-	cwd, err = filepath.Abs(cwd)
-	if err != nil {
-		fmt.Fprintln(errOut, err)
-		return 2
-	}
-	st, err := os.Stat(cwd)
-	if err != nil || !st.IsDir() {
-		fmt.Fprintln(errOut, "--cwd must name an existing directory")
-		return 2
-	}
-	fs := flag.NewFlagSet(rest[0], flag.ContinueOnError)
-	fs.SetOutput(errOut)
-	fs.Usage = func() { fmt.Fprint(out, help) }
-	var reviewer, tcb, goExe, jar string
+	var reviewer, accepted, expected, goExe, jar, from string
 	var timeout time.Duration
-	switch rest[0] {
+	var diff bool
+	switch command {
 	case "approve":
 		fs.StringVar(&reviewer, "reviewer", "", "Reviewer assertion")
-		fs.StringVar(&tcb, "accept-tcb", "", "Comma-separated trust ids")
+		fs.StringVar(&accepted, "accept-tcb", "", "Comma-separated trust IDs")
+		fs.StringVar(&expected, "expect-digest", "", "Digest of the intent and contracts reviewed")
+	case "plan":
+		fs.BoolVar(&diff, "diff", false, "Show changes since recorded review")
 	case "prove", "doctor":
 		fs.StringVar(&goExe, "go", "go", "Go executable")
 		fs.StringVar(&jar, "gobra-jar", "", "Local Gobra jar instead of Docker")
 		fs.DurationVar(&timeout, "timeout", 2*time.Minute, "Timeout per check")
-	case "init", "plan", "lint", "status":
+	case "init":
+		fs.StringVar(&from, "from", "", "Import a schema-1 plan file as an unapproved draft")
+	case "plans", "lint", "status":
 	default:
-		fmt.Fprintln(errOut, "unknown command:", rest[0])
-		return 2
+		return printer.finish(2, nil, "usage", fmt.Errorf("unknown command: %s", command), "Run pdd --help for commands.")
 	}
 	if err = fs.Parse(rest[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return printer.finish(0, map[string]string{"help": help}, "", nil, "")
 		}
-		return 2
+		return printer.finish(2, nil, "usage", err, "")
 	}
 	if fs.NArg() > 0 {
-		fmt.Fprintln(errOut, "unexpected argument:", fs.Arg(0))
-		return 2
+		return printer.finish(2, nil, "usage", fmt.Errorf("unexpected argument: %s", fs.Arg(0)), "")
 	}
-	fail := func(err error) int { fmt.Fprintln(errOut, "error:", err); return 1 }
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if rest[0] == "doctor" {
-		good := true
-		for name, command := range map[string][]string{"go": {goExe, "version"}, "gobra-container": {"docker", "image", "inspect", pdd.GobraImage, "--format", "{{.Id}}"}} {
-			if name == "gobra-container" && jar != "" {
-				if _, err := os.Stat(jar); err != nil {
-					fmt.Fprintln(out, "gobra-jar:", err)
-					good = false
+	if command == "doctor" {
+		return doctor(ctx, goExe, jar, printer)
+	}
+	if command == "plans" {
+		plans, err := pdd.ListPlans(cwd)
+		if err != nil {
+			return printer.finish(1, nil, "io", err, "")
+		}
+		if !global.json {
+			for _, plan := range plans {
+				status := "valid"
+				if !plan.Valid {
+					status = "invalid"
 				}
-				command = []string{"java", "-version"}
-			}
-			probe, c := context.WithTimeout(ctx, 10*time.Second)
-			b, err := exec.CommandContext(probe, command[0], command[1:]...).CombinedOutput()
-			c()
-			if err != nil {
-				fmt.Fprintf(out, "%s: unavailable (%v)\n", name, err)
-				good = false
-			} else {
-				fmt.Fprintf(out, "%s: %s\n", name, strings.TrimSpace(string(b)))
+				fmt.Fprintf(out, "%s: %s (%s)\n", plan.ID, status, plan.File)
+				if plan.Error != "" {
+					fmt.Fprintln(out, "  "+plan.Error)
+				}
 			}
 		}
-		if !good {
-			fmt.Fprintf(out, "For Docker backend: docker pull %s\n", pdd.GobraImage)
-			return 1
-		}
-		return 0
+		return printer.finish(0, plans, "", nil, "")
 	}
-	if rest[0] == "init" {
-		path := filepath.Join(cwd, pdd.PlanPath)
-		if err = pdd.NoSymlinks(path); err != nil {
-			return fail(err)
+	if command == "init" {
+		result, err := pdd.Initialize(cwd, paths.Name, from)
+		if err != nil {
+			return printer.finish(1, nil, "initialization", err, "Select another --plan name for an independent plan; init never overwrites an existing plan.")
 		}
-		if _, err = os.Lstat(path); !os.IsNotExist(err) {
-			return fail(fmt.Errorf("%s already exists or cannot be accessed", path))
+		if !global.json {
+			fmt.Fprintln(out, "Created", result.Path, "(draft; no approval was recorded)")
+			if result.ValidationError != "" {
+				fmt.Fprintln(out, "Before approval:", result.ValidationError)
+			}
 		}
-		scaffold := pdd.Plan{Schema: 1, Name: filepath.Base(cwd), Intent: "Describe the behavior to prove, including refusal and success cases.", NonGoals: []string{"List behavior and external dependencies outside this proof."}, Requirements: []pdd.Requirement{}, Checks: []pdd.Check{}, Trust: []pdd.Trust{}, Mutations: []pdd.Mutation{}}
-		if err = pdd.WriteJSON(path, scaffold); err != nil {
-			return fail(err)
-		}
-		fmt.Fprintln(out, "Created", path, "(draft: add requirements, contracts and checks before approval)")
-		return 0
+		return printer.finish(0, result, "", nil, "")
 	}
-	plan, err := pdd.Load(cwd)
+	plan, err := pdd.LoadNamed(cwd, paths.Name)
 	if err != nil {
-		return fail(err)
+		return printer.finish(1, nil, "validation", err, "Check the selected plan file and its contract mappings; use init for a new plan.")
 	}
-	switch rest[0] {
+	switch command {
 	case "plan":
-		fmt.Fprintf(out, "# %s\n\n%s\n\n", plan.Name, plan.Intent)
-		for _, r := range plan.Requirements {
-			fmt.Fprintf(out, "[%s] %s: %s\n  check: %s\n", r.Kind, r.ID, r.Text, r.Check)
-			if r.Kind == "formal" {
-				fmt.Fprintf(out, "  %s :: %s\n  ensures %s\n", r.File, r.Function, r.Ensures)
-			}
-		}
-		order, deps, err := plan.VerificationOrder(cwd)
+		report, err := pdd.ReportReview(cwd, plan)
 		if err != nil {
-			return fail(err)
+			return printer.finish(1, nil, "review", err, "")
 		}
-		fmt.Fprintln(out, "\nChecks in verification order:")
-		for _, check := range order {
-			fmt.Fprintf(out, "  %s (%s)\n", check.ID, check.Kind)
-			if check.Kind == "gobra" {
-				fmt.Fprintln(out, "    files:", strings.Join(check.Files, ", "))
-			} else {
-				fmt.Fprintf(out, "    package: %s; tests: %s\n", check.Package, strings.Join(check.Tests, ", "))
-			}
-			if len(deps[check.ID]) > 0 {
-				fmt.Fprintln(out, "    requires verified:", strings.Join(deps[check.ID], ", "))
-			}
+		if !global.json {
+			renderReview(out, report, diff)
 		}
-		fmt.Fprintln(out, "\nTrusted boundary (requires explicit acceptance):")
-		for _, t := range plan.Trust {
-			fmt.Fprintf(out, "  %s: %s\n  empirical check: %s\n", t.ID, t.Assumption, t.Check)
-		}
-		fmt.Fprintln(out, "\nOutside the guarantee:")
-		for _, n := range plan.NonGoals {
-			fmt.Fprintln(out, " -", n)
-		}
-		fmt.Fprintln(out, "\nMutations:")
-		for _, m := range plan.Mutations {
-			fmt.Fprintf(out, "  %s -> %s: %q => %q\n", m.ID, m.Requirement, m.Find, m.Replace)
-		}
-		if err = pdd.CheckApproval(cwd, plan); err != nil {
-			fmt.Fprintln(out, "\nApproval: pending or stale")
-		} else {
-			fmt.Fprintln(out, "\nApproval: current")
-		}
-		return 0
+		return printer.finish(0, report, "", nil, "")
 	case "lint":
-		fmt.Fprintln(out, "Plan, production contracts, trust mappings and mutations are structurally valid.")
-		return 0
+		digest, err := pdd.Digest(cwd, plan)
+		if err != nil {
+			return printer.finish(1, nil, "validation", err, "")
+		}
+		if !global.json {
+			fmt.Fprintln(out, "Plan, production contracts, trust mappings and mutations are structurally valid.")
+		}
+		return printer.finish(0, map[string]interface{}{"valid": true, "digest": digest, "plan_path": paths.File, "requirements": len(plan.Requirements), "checks": len(plan.Checks)}, "", nil, "")
 	case "approve":
-		var accepted []string
-		if tcb != "" {
-			for _, s := range strings.Split(tcb, ",") {
-				accepted = append(accepted, strings.TrimSpace(s))
+		var trust []string
+		if accepted != "" {
+			for _, id := range strings.Split(accepted, ",") {
+				trust = append(trust, strings.TrimSpace(id))
 			}
 		}
-		approval, err := pdd.Approve(cwd, plan, reviewer, accepted)
+		approval, err := pdd.ApproveExpected(cwd, plan, reviewer, trust, expected)
 		if err != nil {
-			return fail(err)
+			return printer.finish(1, nil, "approval", err, "Review plan --diff and plan --json before recording approval.")
 		}
-		fmt.Fprintln(out, "Recorded approval for", approval.Digest)
-		return 0
+		if !global.json {
+			fmt.Fprintln(out, "Recorded approval for", approval.Digest)
+		}
+		return printer.finish(0, approval, "", nil, "")
 	case "prove":
 		if timeout <= 0 {
-			fmt.Fprintln(errOut, "timeout must be positive")
-			return 2
+			return printer.finish(2, nil, "usage", fmt.Errorf("timeout must be positive"), "")
+		}
+		if err = pdd.CheckApproval(cwd, plan); err != nil {
+			return printer.finish(1, nil, "approval", err, "Review the selected plan and explicitly accept its trusted boundary before proving.")
 		}
 		if jar != "" {
 			jar, err = filepath.Abs(jar)
 			if err != nil {
-				return fail(err)
+				return printer.finish(2, nil, "usage", err, "")
 			}
 		}
-		receipt, dir, err := pdd.Prove(ctx, cwd, plan, pdd.Options{Version: version, Runner: pdd.ToolRunner{Go: goExe, GobraJar: jar, Timeout: timeout}, Tools: pdd.ToolInfo(ctx, goExe, jar), Progress: func(s string) { fmt.Fprintln(errOut, s) }})
+		receipt, dir, err := pdd.Prove(ctx, cwd, plan, pdd.Options{Version: version, Runner: pdd.ToolRunner{Go: goExe, GobraJar: jar, Timeout: timeout}, Tools: pdd.ToolInfo(ctx, goExe, jar), Progress: func(message string) { fmt.Fprintln(errOut, message) }})
 		if err != nil {
-			return fail(err)
+			return printer.finish(1, nil, "execution", err, "")
 		}
-		fmt.Fprintln(out, "Receipt:", filepath.Join(dir, "receipt.md"))
-		for _, r := range receipt.Requirements {
-			fmt.Fprintf(out, "%s: %s (%s)\n", r.ID, r.Status, r.Kind)
-		}
-		for _, gap := range receipt.Gaps {
-			fmt.Fprintln(errOut, "gap:", gap)
+		_, latest, currentErr := pdd.Status(cwd, plan)
+		current := currentErr == nil && latest == dir
+		data := receiptResult(receipt, dir, current)
+		if !global.json {
+			fmt.Fprintln(out, "Receipt:", filepath.Join(dir, "receipt.md"))
+			for _, verdict := range receipt.Requirements {
+				fmt.Fprintf(out, "%s: %s (%s)\n", verdict.ID, verdict.Status, verdict.Kind)
+			}
+			for _, gap := range receipt.Gaps {
+				fmt.Fprintln(errOut, "gap:", gap)
+			}
 		}
 		if !receipt.Success {
-			return 1
+			return printer.finish(1, data, "verification", fmt.Errorf("verification failed with %d gap(s)", len(receipt.Gaps)), "Inspect receipt gaps and per-check logs; failed proofs are never replaced by passing tests.")
 		}
-		return 0
+		if !current {
+			if currentErr == nil {
+				currentErr = fmt.Errorf("a newer verification replaced this result")
+			}
+			return printer.finish(1, data, "status", currentErr, "Inspect status or rerun prove for current evidence.")
+		}
+		return printer.finish(0, data, "", nil, "")
 	case "status":
 		receipt, dir, err := pdd.Status(cwd, plan)
+		data := receiptResult(receipt, dir, err == nil)
 		if err != nil {
-			return fail(err)
+			return printer.finish(1, data, "status", err, "Run prove against the current approved plan to obtain current evidence.")
 		}
-		fmt.Fprintf(out, "Current receipt: %s\nSuccess: %t\n", filepath.Join(dir, "receipt.md"), receipt.Success)
+		if !global.json {
+			fmt.Fprintf(out, "Current receipt: %s\nSuccess: %t\n", filepath.Join(dir, "receipt.md"), receipt.Success)
+		}
 		if !receipt.Success {
-			return 1
+			return printer.finish(1, data, "verification", fmt.Errorf("latest verification did not succeed"), "Inspect the latest receipt's gaps and logs.")
 		}
-		return 0
+		return printer.finish(0, data, "", nil, "")
 	}
-	return 2
+	return printer.finish(2, nil, "usage", fmt.Errorf("unknown command"), "")
+}
+
+type doctorCheck struct {
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail"`
+}
+
+func doctor(ctx context.Context, goExe, jar string, printer output) int {
+	checks := []doctorCheck{}
+	commands := []struct {
+		name string
+		args []string
+	}{{"go", []string{goExe, "version"}}, {"gobra-container", []string{"docker", "image", "inspect", pdd.GobraImage, "--format", "{{.Id}}"}}}
+	if jar != "" {
+		commands[1] = struct {
+			name string
+			args []string
+		}{"java", []string{"java", "-version"}}
+		stat, err := os.Stat(jar)
+		ok := err == nil && !stat.IsDir()
+		detail := jar
+		if err != nil {
+			detail = err.Error()
+		}
+		checks = append(checks, doctorCheck{"gobra-jar", ok, detail})
+	}
+	for _, command := range commands {
+		probe, cancel := context.WithTimeout(ctx, 10*time.Second)
+		bytes, err := exec.CommandContext(probe, command.args[0], command.args[1:]...).CombinedOutput()
+		cancel()
+		detail := strings.TrimSpace(string(bytes))
+		if err != nil {
+			detail = err.Error() + ": " + detail
+		}
+		checks = append(checks, doctorCheck{command.name, err == nil, detail})
+	}
+	good := true
+	for _, check := range checks {
+		good = good && check.OK
+		if !printer.json {
+			fmt.Fprintf(printer.out, "%s: %s\n", check.Name, check.Detail)
+		}
+	}
+	data := map[string]interface{}{"checks": checks, "docker_pull": "docker pull " + pdd.GobraImage}
+	if !good {
+		return printer.finish(1, data, "prerequisite", fmt.Errorf("one or more verification prerequisites are unavailable"), "For Docker backend: docker pull "+pdd.GobraImage)
+	}
+	return printer.finish(0, data, "", nil, "")
+}
+
+type receiptOutput struct {
+	Receipt *pdd.Receipt `json:"receipt,omitempty"`
+	Path    string       `json:"path,omitempty"`
+	Current bool         `json:"current"`
+}
+
+func receiptResult(receipt pdd.Receipt, dir string, current bool) receiptOutput {
+	result := receiptOutput{Current: current}
+	if receipt.Schema > 0 {
+		result.Receipt = &receipt
+	}
+	if dir != "" {
+		result.Path = filepath.Join(dir, "receipt.json")
+	}
+	return result
 }

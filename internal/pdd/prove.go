@@ -1,9 +1,11 @@
 package pdd
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -36,6 +38,7 @@ type Verdict struct {
 	Check  string `json:"check"`
 }
 type Receipt struct {
+	PlanID       string            `json:"plan_id,omitempty"`
 	Schema       int               `json:"schema"`
 	Version      string            `json:"version"`
 	StartedAt    time.Time         `json:"started_at"`
@@ -63,7 +66,7 @@ type Options struct {
 // Prove executes only approved checks. Missing tools, missing tests, surviving
 // mutants and changes during verification all fail closed and produce a receipt.
 func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, string, error) {
-	receipt := Receipt{Schema: 1, Version: options.Version, StartedAt: time.Now().UTC(), Evidence: []Evidence{}, Mutations: []MutationResult{}, Requirements: []Verdict{}, Trust: p.Trust, NonGoals: p.NonGoals, Gaps: []string{}, Tools: options.Tools}
+	receipt := Receipt{PlanID: p.ID(), Schema: 1, Version: options.Version, StartedAt: time.Now().UTC(), Evidence: []Evidence{}, Mutations: []MutationResult{}, Requirements: []Verdict{}, Trust: p.Trust, NonGoals: p.NonGoals, Gaps: []string{}, Tools: options.Tools}
 	unlock, lockErr := lockProject(root)
 	if lockErr != nil {
 		return receipt, "", lockErr
@@ -79,7 +82,7 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 	if err != nil {
 		return receipt, "", err
 	}
-	if err := ReadJSON(filepath.Join(root, ApprovalPath), &receipt.Approval); err != nil {
+	if err := ReadJSON(filepath.Join(root, p.stateFile("approval.json")), &receipt.Approval); err != nil {
 		return receipt, "", err
 	}
 	digest, err := Digest(root, p)
@@ -101,15 +104,15 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 	if runner == nil {
 		runner = ToolRunner{}
 	}
-	dir := filepath.Join(root, ".pdd", "receipts", receipt.StartedAt.Format("20060102T150405.000000000Z"))
+	dir := filepath.Join(root, p.stateFile("receipts"), receipt.StartedAt.Format("20060102T150405.000000000Z"))
 	if err = NoSymlinks(dir); err != nil {
 		return receipt, "", err
 	}
 	if err = os.MkdirAll(dir, 0755); err != nil {
 		return receipt, "", err
 	}
-	state := RunState{Schema: 1, ID: filepath.Base(dir), State: "running", StartedAt: receipt.StartedAt}
-	if err = WriteJSON(filepath.Join(root, runStatePath), state); err != nil {
+	state := RunState{PlanID: p.ID(), Schema: 1, ID: filepath.Base(dir), State: "running", StartedAt: receipt.StartedAt}
+	if err = WriteJSON(filepath.Join(root, p.stateFile("run.json")), state); err != nil {
 		return receipt, "", err
 	}
 	completed := false
@@ -118,7 +121,7 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 			state.State = "interrupted"
 			state.FinishedAt = time.Now().UTC()
 			state.Detail = "verification exited without a completed receipt"
-			_ = WriteJSON(filepath.Join(root, runStatePath), state)
+			_ = WriteJSON(filepath.Join(root, p.stateFile("run.json")), state)
 		}
 	}()
 	scratch, err := os.MkdirTemp("", "pdd-baseline-")
@@ -274,14 +277,14 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 	if err != nil || current.Hash != source.Hash {
 		receipt.Gaps = append(receipt.Gaps, "source changed during verification")
 	}
-	latest, err := Load(root)
+	latest, err := LoadNamed(root, p.ID())
 	if err != nil {
 		receipt.Gaps = append(receipt.Gaps, "plan changed during verification")
 	} else if d, e := Digest(root, latest); e != nil || d != digest {
 		receipt.Gaps = append(receipt.Gaps, "plan or contracts changed during verification")
 	}
 	var finalApproval Approval
-	approvalErr := ReadJSON(filepath.Join(root, ApprovalPath), &finalApproval)
+	approvalErr := ReadJSON(filepath.Join(root, p.stateFile("approval.json")), &finalApproval)
 	if CheckApproval(root, p) != nil || approvalErr != nil || !sameApproval(receipt.Approval, finalApproval) {
 		receipt.Gaps = append(receipt.Gaps, "approval changed during verification")
 	}
@@ -308,7 +311,7 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 	}
 	state.State = "completed"
 	state.FinishedAt = receipt.FinishedAt
-	if err = WriteJSON(filepath.Join(root, runStatePath), state); err != nil {
+	if err = WriteJSON(filepath.Join(root, p.stateFile("run.json")), state); err != nil {
 		return receipt, "", err
 	}
 	completed = true
@@ -318,7 +321,11 @@ func hashBytes(b []byte) string { sum := sha256.Sum256(b); return hex.EncodeToSt
 func Markdown(r Receipt) string {
 	var b strings.Builder
 	fmt.Fprint(&b, "# Proof-Driven Development receipt\n\n")
-	fmt.Fprintf(&b, "Success: **%t**\n\nPlan: `%s`\n\nSource: `%s`\n\n", r.Success, r.PlanDigest, r.SourceDigest)
+	name := r.PlanID
+	if name == "" {
+		name = "default"
+	}
+	fmt.Fprintf(&b, "Success: **%t**\n\nPlan: **%s**\n\nPlan digest: `%s`\n\nSource: `%s`\n\n", r.Success, name, r.PlanDigest, r.SourceDigest)
 	fmt.Fprintf(&b, "Reviewer assertion: **%s** at %s\n\n", r.Approval.Reviewer, r.Approval.ApprovedAt.Format(time.RFC3339))
 	if r.GitCommit != "" {
 		fmt.Fprintf(&b, "Commit: `%s`\n\n", r.GitCommit)
@@ -368,9 +375,9 @@ func Markdown(r Receipt) string {
 func Status(root string, p Plan) (Receipt, string, error) {
 	var receipt Receipt
 	var dir string
-	state, stateErr := readRunState(root)
+	state, stateErr := readRunState(root, p)
 	if stateErr == nil {
-		dir = filepath.Join(root, ".pdd", "receipts", state.ID)
+		dir = filepath.Join(root, p.stateFile("receipts"), state.ID)
 		if state.State != "completed" {
 			return receipt, dir, fmt.Errorf("latest verification is incomplete or interrupted (%s): %s", state.State, state.Detail)
 		}
@@ -379,7 +386,7 @@ func Status(root string, p Plan) (Receipt, string, error) {
 	} else {
 		// Legacy receipts have no latest-run record. An unfinished newest
 		// directory is still not permission to return an older green result.
-		entries, err := os.ReadDir(filepath.Join(root, ".pdd", "receipts"))
+		entries, err := os.ReadDir(filepath.Join(root, p.stateFile("receipts")))
 		if err != nil {
 			return receipt, "", fmt.Errorf("no receipt: %w", err)
 		}
@@ -393,7 +400,7 @@ func Status(root string, p Plan) (Receipt, string, error) {
 		if len(dirs) == 0 {
 			return receipt, "", fmt.Errorf("no completed receipt")
 		}
-		dir = filepath.Join(root, ".pdd", "receipts", dirs[0])
+		dir = filepath.Join(root, p.stateFile("receipts"), dirs[0])
 	}
 	if err := NoSymlinks(dir); err != nil {
 		return receipt, dir, err
@@ -406,13 +413,13 @@ func Status(root string, p Plan) (Receipt, string, error) {
 		return receipt, dir, err
 	}
 	var currentApproval Approval
-	if err = ReadJSON(filepath.Join(root, ApprovalPath), &currentApproval); err != nil || !sameApproval(receipt.Approval, currentApproval) {
+	if err = ReadJSON(filepath.Join(root, p.stateFile("approval.json")), &currentApproval); err != nil || !sameApproval(receipt.Approval, currentApproval) {
 		return receipt, dir, fmt.Errorf("stale receipt: approval record changed")
 	}
 	if stateErr == nil && (!receipt.StartedAt.Equal(state.StartedAt) || !receipt.FinishedAt.Equal(state.FinishedAt)) {
 		return receipt, dir, fmt.Errorf("latest-run record does not match its receipt")
 	}
-	if receipt.Schema != 1 || receipt.FinishedAt.IsZero() {
+	if receipt.Schema != 1 || !matchesPlanID(receipt.PlanID, p) || receipt.FinishedAt.IsZero() {
 		return receipt, dir, fmt.Errorf("invalid or unfinished receipt")
 	}
 	if len(receipt.Evidence) != len(p.Checks) || len(receipt.Requirements) != len(p.Requirements) || len(receipt.Mutations) != len(p.Mutations) {
@@ -493,11 +500,13 @@ func Status(root string, p Plan) (Receipt, string, error) {
 }
 
 func sameApproval(a, b Approval) bool {
-	if a.Schema != b.Schema || a.Digest != b.Digest || a.Reviewer != b.Reviewer || !a.ApprovedAt.Equal(b.ApprovedAt) {
+	if a.PlanID != b.PlanID || a.Schema != b.Schema || a.Digest != b.Digest || a.Reviewer != b.Reviewer || !a.ApprovedAt.Equal(b.ApprovedAt) {
 		return false
 	}
 	aa, bb := append([]string{}, a.AcceptedTrust...), append([]string{}, b.AcceptedTrust...)
 	sort.Strings(aa)
 	sort.Strings(bb)
-	return strings.Join(aa, ",") == strings.Join(bb, ",")
+	left, _ := json.Marshal(a.Review)
+	right, _ := json.Marshal(b.Review)
+	return strings.Join(aa, ",") == strings.Join(bb, ",") && bytes.Equal(left, right)
 }

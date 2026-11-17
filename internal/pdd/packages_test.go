@@ -294,7 +294,11 @@ func TestGobraPackagesIntegration(t *testing.T) {
 	if err = ReadJSON(filepath.Join(root, "examples/authorization/plan.json"), &p); err != nil {
 		t.Fatal(err)
 	}
-	if err = WriteJSON(filepath.Join(root, PlanPath), p); err != nil {
+	p, err = p.Named("authorization")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = WriteJSON(filepath.Join(root, p.Paths().File), p); err != nil {
 		t.Fatal(err)
 	}
 	var trust []string
@@ -313,6 +317,9 @@ func TestGobraPackagesIntegration(t *testing.T) {
 			t.Logf("%s: %s", m.ID, m.Execution.Output)
 		}
 		t.Fatalf("package proof: %v %v", err, receipt.Gaps)
+	}
+	if receipt.PlanID != "authorization" {
+		t.Fatal("named real proof lost its identity")
 	}
 	if _, _, err := Status(root, p); err != nil {
 		t.Fatal(err)

@@ -1,6 +1,6 @@
 # Plan format (schema 1)
 
-`.pdd/plan.json` is the reviewed intent artifact. Unknown JSON fields and repeated keys (including equivalent case variants) are rejected. JSON artifacts are limited to 8 MiB. The CLI reads only this file; changing the plan never silently changes the implementation.
+`.pdd/plan.json` is the default intent artifact; named plans live under `.pdd/plans/NAME.json` and are selected with `--plan NAME`. Unknown JSON fields and repeated keys (including equivalent case variants) are rejected. JSON artifacts are limited to 8 MiB. The CLI reads only this file; changing the plan never silently changes the implementation.
 
 The [login example](../examples/login/plan.json) is a complete plan. Identifiers start with a lowercase letter and contain lowercase letters, digits and hyphens. IDs are unique across requirements, checks, trust assumptions and mutations.
 
@@ -36,7 +36,7 @@ Mutations execute on separate snapshots. A mutant is killed only when Gobra retu
 
 ## Approval and freshness
 
-`.pdd/approval.json` binds the normalized plan plus proof annotations and Go declarations to a self-asserted reviewer, accepted trust IDs and timestamp. Implementation bodies can change without changing the contract approval, but mutations still have to match. Changing proof annotations, function signatures, constants, types, the imported module identity or intent requires renewed review. Pure helper bodies define terms used in specifications, so their bodies are also bound to approval; a helper implementation cannot silently weaken the meaning of an unchanged `ensures` clause. This includes invariants: the prototype freezes every `// @` annotation, not just postconditions.
+The selected plan's approval record binds its identity, saved review, normalized plan plus proof annotations and Go declarations to a self-asserted reviewer, accepted trust IDs and timestamp. Implementation bodies can change without changing the contract approval, but mutations still have to match. `plan --diff` compares the current frozen content with the saved review; `approve --expect-digest SHA256` rejects changes since that review. Legacy default records remain readable and explicitly report when historical review text is unavailable. Changing proof annotations, their owning declarations, function signatures, constants, types, the imported module identity or intent requires renewed review. A precondition moved from a helper to the verified function is a contract change even when annotation text and declaration order stay the same. Pure helper bodies define terms used in specifications, so their bodies are also bound to approval; a helper implementation cannot silently weaken the meaning of an unchanged `ensures` clause. This includes invariants: the prototype freezes every `// @` annotation, not just postconditions.
 
 `prove` takes a digest of the repository files, executes isolated check copies, compares the current source and plan afterward, and emits a receipt. Each baseline check receives a fresh snapshot and must not modify it. Receipts record formal dependency check IDs, and `status` checks freshness, log hashes and dependency coverage. New source edits invalidate old receipts even when the prior checks passed. Re-run verification after editing.
 

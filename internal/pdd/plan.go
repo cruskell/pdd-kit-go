@@ -3,8 +3,6 @@ package pdd
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"go/ast"
@@ -27,6 +25,7 @@ const ApprovalPath = ".pdd/approval.json"
 const GobraImage = "ghcr.io/viperproject/gobra@sha256:5e96431b06c2e6209aa767df9153bb4cf8b2620598598f1d7d3f3a74c09c14f9"
 
 type Plan struct {
+	selectedName string
 	Schema       int           `json:"schema"`
 	Name         string        `json:"name"`
 	Intent       string        `json:"intent"`
@@ -66,11 +65,13 @@ type Mutation struct {
 	Replace     string `json:"replace"`
 }
 type Approval struct {
-	Schema        int       `json:"schema"`
-	Digest        string    `json:"digest"`
-	Reviewer      string    `json:"reviewer"`
-	AcceptedTrust []string  `json:"accepted_trust"`
-	ApprovedAt    time.Time `json:"approved_at"`
+	Schema        int           `json:"schema"`
+	Digest        string        `json:"digest"`
+	Reviewer      string        `json:"reviewer"`
+	AcceptedTrust []string      `json:"accepted_trust"`
+	ApprovedAt    time.Time     `json:"approved_at"`
+	PlanID        string        `json:"plan_id,omitempty"`
+	Review        *ReviewBundle `json:"review,omitempty"`
 }
 
 var idRE = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
@@ -106,14 +107,8 @@ func ReadJSON(path string, v interface{}) error {
 	}
 	return nil
 }
-func Load(root string) (Plan, error) {
-	var p Plan
-	err := ReadJSON(filepath.Join(root, PlanPath), &p)
-	if err != nil {
-		return p, err
-	}
-	return p, p.Validate(root)
-}
+func Load(root string) (Plan, error) { return LoadNamed(root, "default") }
+
 func Local(root, path string) (string, error) {
 	if path == "" || filepath.IsAbs(path) || strings.Contains(path, "\\") {
 		return "", fmt.Errorf("path must be repository-relative: %q", path)
@@ -501,62 +496,21 @@ func Mutate(m Mutation, r Requirement, b []byte) ([]byte, error) {
 	}
 	return mutated, nil
 }
-func Digest(root string, p Plan) (string, error) {
-	b, err := json.Marshal(p)
-	if err != nil {
-		return "", err
-	}
-	graph, err := resolvePackages(root, p)
-	if err != nil {
-		return "", err
-	}
-	h := sha256.New()
-	h.Write(b)
-	if graph.Module != "" {
-		encoded, _ := json.Marshal(struct{ Module string }{graph.Module})
-		h.Write(encoded)
-	}
-	files := map[string]bool{}
-	for _, c := range p.Checks {
-		if c.Kind == "gobra" {
-			for _, f := range c.Files {
-				files[f] = true
-			}
-		}
-	}
-	var ordered []string
-	for f := range files {
-		ordered = append(ordered, f)
-	}
-	sort.Strings(ordered)
-	for _, file := range ordered {
-		b, err := readSource(root, file)
-		if err != nil {
-			return "", err
-		}
-		annotations, err := contracts(file, b)
-		if err != nil {
-			return "", err
-		}
-		encoded, _ := json.Marshal(struct {
-			File        string
-			Annotations []string
-		}{file, annotations})
-		h.Write(encoded)
-		definitions, err := specificationDefinitions(file, b)
-		if err != nil {
-			return "", err
-		}
-		h.Write(definitions)
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
 func Approve(root string, p Plan, reviewer string, accepted []string) (Approval, error) {
+	return ApproveExpected(root, p, reviewer, accepted, "")
+}
+func ApproveExpected(root string, p Plan, reviewer string, accepted []string, expected string) (Approval, error) {
 	unlock, err := lockProject(root)
 	if err != nil {
 		return Approval{}, err
 	}
 	defer unlock()
+	if err = p.Validate(root); err != nil {
+		return Approval{}, err
+	}
+	if err = authoredPlanMatches(root, p); err != nil {
+		return Approval{}, err
+	}
 	if strings.TrimSpace(reviewer) == "" {
 		return Approval{}, fmt.Errorf("--reviewer is required; approval records an assertion, not an authenticated identity")
 	}
@@ -570,24 +524,40 @@ func Approve(root string, p Plan, reviewer string, accepted []string) (Approval,
 	if strings.Join(want, ",") != strings.Join(accepted, ",") {
 		return Approval{}, fmt.Errorf("explicitly accept each trusted boundary with --accept-tcb %s", strings.Join(want, ","))
 	}
-	digest, err := Digest(root, p)
+	review, err := BuildReview(root, p)
 	if err != nil {
 		return Approval{}, err
 	}
-	a := Approval{1, digest, reviewer, accepted, time.Now().UTC()}
-	return a, WriteJSON(filepath.Join(root, ApprovalPath), a)
+	digest, err := review.digest()
+	if err != nil {
+		return Approval{}, err
+	}
+	if expected != "" && expected != digest {
+		return Approval{}, fmt.Errorf("review digest changed; expected %s, current %s; review again before approving", expected, digest)
+	}
+	a := Approval{Schema: 1, Digest: digest, Reviewer: reviewer, AcceptedTrust: accepted, ApprovedAt: time.Now().UTC(), PlanID: p.ID(), Review: &review}
+	return a, WriteJSON(filepath.Join(root, p.stateFile("approval.json")), a)
 }
 func CheckApproval(root string, p Plan) error {
+	if err := authoredPlanMatches(root, p); err != nil {
+		return err
+	}
 	var a Approval
-	if err := ReadJSON(filepath.Join(root, ApprovalPath), &a); err != nil {
+	if err := ReadJSON(filepath.Join(root, p.stateFile("approval.json")), &a); err != nil {
 		return fmt.Errorf("plan is not approved: %w", err)
 	}
 	digest, err := Digest(root, p)
 	if err != nil {
 		return err
 	}
-	if a.Schema != 1 || a.Digest != digest || a.Reviewer == "" || a.ApprovedAt.IsZero() {
+	if a.Schema != 1 || !matchesPlanID(a.PlanID, p) || a.Digest != digest || a.Reviewer == "" || a.ApprovedAt.IsZero() {
 		return fmt.Errorf("approval is stale or invalid; review the current plan and contracts")
+	}
+	if a.Review != nil {
+		saved, err := a.Review.digest()
+		if err != nil || saved != a.Digest || !matchesPlanID(a.Review.PlanID, p) {
+			return fmt.Errorf("saved review does not match approval")
+		}
 	}
 	var want []string
 	for _, t := range p.Trust {
@@ -605,6 +575,9 @@ func WriteJSON(path string, v interface{}) error {
 	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
+	}
+	if len(b)+1 > 8<<20 {
+		return fmt.Errorf("%s: JSON exceeds 8 MiB; reduce the model or split independent named plans", path)
 	}
 	return AtomicWrite(path, append(b, '\n'))
 }

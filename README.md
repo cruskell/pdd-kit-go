@@ -55,37 +55,39 @@ pdd --cwd /path/to/repo approve --reviewer YOUR_NAME --accept-tcb boundary-id
 pdd --cwd /path/to/repo prove
 ```
 
-`init` creates an incomplete, unapproved scaffold; it deliberately fails validation until real requirements and checks are supplied. See the complete [login plan](examples/login/plan.json), [multi-package authorization plan](examples/authorization/plan.json), [plan format](docs/plan-format.md), and [agent workflow](docs/agent-workflow.md).
+`init` creates an incomplete, unapproved scaffold; `init --from PATH` imports an existing plan without running checks or recording approval; it deliberately fails validation until real requirements and checks are supplied. See the complete [login plan](examples/login/plan.json), [multi-package authorization plan](examples/authorization/plan.json), [plan format](docs/plan-format.md), and [agent workflow](docs/agent-workflow.md).
 
 | Command | Behavior |
 | --- | --- |
 | `init` | Create a draft without overwriting a plan |
-| `plan` | Display intent, formal clauses, trust assumptions, mutations and exclusions |
+| `plans` | List default/named plans, including invalid drafts |
+| `plan` | Display intent, formal clauses, trust assumptions, mutations and exclusions; `--diff` shows changes since review |
 | `lint` | Validate mappings against production Go and ensure every formal clause has a mutation |
 | `approve` | Record a reviewer assertion bound to the plan, declarations and proof annotations |
 | `prove` | Run all approved checks and mutations in scratch copies; write JSON/Markdown receipts and logs |
 | `status` | Reject unsuccessful, stale or damaged evidence |
 | `doctor` | Check Go and the pinned Docker image, or Java/local jar prerequisites |
 
-Exit codes: `0` success, `1` unmet verification or operational failure, `2` CLI usage error. `prove --timeout 2m` limits each check; `--go /path/to/go` selects Go; `--gobra-jar /path/to/gobra.jar` uses Java instead of Docker.
+Exit codes: `0` success, `1` unmet verification or operational failure, `2` CLI usage error. `--plan NAME` selects an independent plan and state namespace. `--json` emits a schema-1 result with structured errors. `approve --expect-digest SHA256` binds approval to the snapshot reviewed. See [named plans](docs/named-plans.md) and [JSON protocol](docs/cli-json.md).
+
+`prove --timeout 2m` limits each check; `--go /path/to/go` selects Go; `--gobra-jar /path/to/gobra.jar` uses Java instead of Docker.
 
 ## Multi-package example
 
 The [authorization example](examples/authorization/plan.json) verifies a handler that imports a local policy package. `Policy` is declared in `types.go`, `Policy.Allows` implements its value-receiver contract in `policy.go`, and the handler's own contract proves the composed result. A pointer-receiver method, `Policy.IsEnabled`, also proves its read contract while preserving the caller's access permission. The plan intentionally lists the caller first; the CLI runs the callee check first.
 
-To switch the repository demo, back up its current plan and select the authorization plan, then review its changed assumptions:
+Create an independent authorization plan, then review its assumptions:
 
 ```sh
-cp .pdd/plan.json .pdd/login-plan.backup.json
-cp examples/authorization/plan.json .pdd/plan.json
-bin/pdd lint
-bin/pdd plan
-bin/pdd approve --reviewer YOUR_NAME --accept-tcb authorization-inputs
-bin/pdd prove
-bin/pdd status
+bin/pdd --plan authorization init --from examples/authorization/plan.json
+bin/pdd --plan authorization lint
+bin/pdd --plan authorization plan --diff
+bin/pdd --plan authorization approve --reviewer YOUR_NAME --accept-tcb authorization-inputs
+bin/pdd --plan authorization prove
+bin/pdd --plan authorization status
 ```
 
-This selects a different demonstration and invalidates the previous plan's approval. `go test ./examples/authorization/...` exercises the production Go call path without running Gobra.
+This keeps the default login demonstration and its approval independent. `go test ./examples/authorization/...` exercises the production Go call path without running Gobra.
 
 ## What counts as success
 
@@ -94,7 +96,7 @@ This selects a different demonstration and invalidates the previous plan's appro
 - Every named empirical Go test actually executes and passes. Missing, skipped, cached-only or empty test runs are not evidence. Checks use `-count=1`.
 - Every formal mutation is valid Go, changes only the target function body, preserves the approved contract, and is rejected on the target postcondition. The diagnostic must point to the target source file and its exact postcondition line. A parse failure, timeout, unrelated clause failure or missing tool is inconclusive and fails the run.
 - Every trust assumption has an empirical check and was explicitly accepted. Tests support assumptions on exercised cases; they do not prove them.
-- Source, plan and approval remain current. A changed file makes an old receipt stale. A changed plan, function signature, proof annotation, imported declaration or pure specification helper requires review again.
+- Source, plan and approval remain current. A changed file makes an old receipt stale. A changed plan, function signature, proof annotation or its owner, imported declaration or pure specification helper requires review again.
 
 There is no automatic fallback from failed formal verification to a green test result. Receipts label formal proof and empirical evidence separately.
 
@@ -102,7 +104,7 @@ There is no automatic fallback from failed formal verification to a green test r
 
 Verification and approval are protected by an OS-backed project lock, automatically released when the owning process exits. Concurrent runs are rejected. `.pdd/run.json` identifies the newest run; an interrupted or incomplete newest run cannot fall back to an older success. SIGINT/SIGTERM cancellation and per-check timeouts terminate child process groups on supported Unix hosts, and the Docker backend removes its verifier container. A canceled run records negative evidence.
 
-Generated artifacts live under `.pdd/receipts/<UTC-run-id>/`: `receipt.json`, `receipt.md` and per-check logs. Receipts include source/plan SHA-256 digests, reviewer assertion, commit (when present), tool identities, commands, durations, outcomes, mutation results, trust assumptions, exclusions and gaps. They are ignored by Git; CI uploads them as artifacts.
+Default-plan artifacts live under `.pdd/receipts/<UTC-run-id>/` (named plans use `.pdd/state/NAME/receipts/`): `receipt.json`, `receipt.md` and per-check logs. Receipts include source/plan SHA-256 digests, reviewer assertion, commit (when present), tool identities, commands, durations, outcomes, mutation results, trust assumptions, exclusions and gaps. They are ignored by Git; CI uploads them as artifacts.
 
 Approvals and receipts are **local, unsigned attestations**, not authentication, a cryptographic proof certificate, or protection against a malicious project owner. Hash checks catch stale or accidentally altered artifacts. The Go compiler, Gobra/Viper/Z3, host environment and dependency behavior remain trusted. Go tests and a local jar execute with your user permissions; scratch copies protect source organization but are not an OS security sandbox. The Docker verifier has a read-only source mount and no network.
 

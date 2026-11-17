@@ -14,7 +14,7 @@ current executable evidence and documentation before it is checked off.
 | Verification integrity | Missing/skipped tests, missing tools, failed contracts, unrelated mutant errors and changed inputs cannot produce success | In progress |
 | Run lifecycle | Concurrent runs cannot corrupt state; cancellation terminates child processes; interrupted newest runs never reuse an older green receipt | Verified locally on Linux; release/CI audit pending |
 | Repository inputs | Bounded snapshots work with ordinary repository assets and configurable exclusions without omitting verified source | Pending |
-| Everyday workflow | Multiple named plans, reviewable approval changes, stable machine-readable output and actionable failure reports | Pending |
+| Everyday workflow | Multiple named plans, reviewable approval changes, stable machine-readable output and actionable failure reports | Implemented; local workflow/verifier tests pass, release/CI audit pending |
 | Go application integration | A runnable HTTP application with formally checked production logic and empirical tests of real handlers/trusted boundaries | Pending |
 | CI adoption | Reviewed approval is preserved; CI never auto-approves production intent; full verification and receipts run on changes | Pending |
 | Distribution | Versioned reproducible builds, checksums, install/use instructions and clean-checkout smoke tests | Pending |
@@ -37,3 +37,12 @@ binaries are cross-built; their runtime behavior is not claimed as tested.
 
 These reliability checks do not close the remaining repository-input, workflow,
 application, CI adoption, distribution or documentation gates above.
+
+## Workflow evidence
+
+`internal/pdd/workspace_test.go` checks independent plan namespaces, rejection of
+copied approvals/receipts, expected-digest review, changed-on-disk intent and saved
+review integrity and precondition ownership changes. `internal/cli/cli_test.go` drives the real CLI API and Go tests
+through success, source staleness and failed verification, checking that each
+JSON response agrees with its exit code. The shipped authorization example is
+formally checked as a named plan by the real Gobra integration test.
