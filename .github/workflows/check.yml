@@ -98,7 +98,7 @@ jobs:
       - name: Checkout independently pinned verifier orchestration
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 4fe69675096a9e270ca3b97b8563d52a7c045af0
+          ref: 1744de250f5c4d7fc6ba71d1d9423d426be7ba69
           path: trusted-tooling
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -106,7 +106,7 @@ jobs:
           cache: false
       - name: Build trusted CLI
         working-directory: trusted-tooling
-        run: go build -ldflags '-X main.version=v0.2.0-policy-gate' -o ../pdd-trusted ./cmd/pdd
+        run: go build -ldflags '-X main.version=v0.2.1-policy-gate' -o ../pdd-trusted ./cmd/pdd
       - name: Read public authority policy from independently managed repository variable
         run: |
           python3 - <<'PYTHON'
