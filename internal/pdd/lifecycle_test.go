@@ -2,6 +2,7 @@ package pdd
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -111,28 +112,56 @@ func TestInterruptedNewestRunDoesNotReuseOlderSuccess(t *testing.T) {
 		t.Fatalf("recovery: %v %v", err, receipt.Gaps)
 	}
 }
-func TestCanceledRunWritesFailureAndSkipsMutants(t *testing.T) {
+func TestCanceledBeforeCaptureDoesNotReuseOlderSuccess(t *testing.T) {
 	root, p := fixture(t)
 	approveFixture(t, root, p)
+	if _, _, err := Prove(context.Background(), root, p, Options{Runner: &fakeRunner{}}); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	runner := &fakeRunner{}
 	receipt, _, err := Prove(ctx, root, p, Options{Runner: runner})
+	if !errors.Is(err, context.Canceled) || receipt.Success || runner.calls != 0 {
+		t.Fatalf("pre-capture cancellation: %v %+v", err, receipt)
+	}
+	if _, _, err = Status(root, p); err == nil {
+		t.Fatal("pre-capture interruption reused old success")
+	}
+}
+func TestCanceledDuringRunWritesNegativeReceipt(t *testing.T) {
+	root, p := fixture(t)
+	approveFixture(t, root, p)
+	ctx, cancel := context.WithCancel(context.Background())
+	runner := &cancelRunner{cancel: cancel}
+	receipt, _, err := Prove(ctx, root, p, Options{Runner: runner})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if receipt.Success || runner.calls != 0 {
-		t.Fatalf("cancellation ran checks or reported success: %+v", receipt)
+	if receipt.Success || runner.calls != 1 {
+		t.Fatal("canceled run executed later checks")
 	}
 	for _, verdict := range receipt.Requirements {
 		if verdict.Status != "unproven" {
-			t.Fatal("canceled verification retained a positive verdict")
+			t.Fatal("canceled run retained a positive verdict")
 		}
 	}
 	if _, _, err = Status(root, p); err != nil {
 		t.Fatal(err)
-	} // Completed negative receipt remains inspectable.
+	}
 }
+
+type cancelRunner struct {
+	cancel context.CancelFunc
+	calls  int
+}
+
+func (r *cancelRunner) Run(context.Context, string, Check) Execution {
+	r.calls++
+	r.cancel()
+	return Execution{Status: "canceled", ExitCode: -1, Detail: "canceled by test"}
+}
+
 func TestLegacyNewestIncompleteReceiptFailsClosed(t *testing.T) {
 	root, p := fixture(t)
 	approveFixture(t, root, p)

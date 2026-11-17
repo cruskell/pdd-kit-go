@@ -168,6 +168,22 @@ func TestMachineReadableEmpiricalWorkflowEndToEnd(t *testing.T) {
 	if code != 0 {
 		t.Fatal(response)
 	}
+	code, response = run("export-approval", "--to", ".pdd/reviews/smoke.json")
+	if code != 0 {
+		t.Fatal(response)
+	}
+	originalApproval := response.Data.(map[string]interface{})
+	if err := os.Remove(filepath.Join(root, ".pdd/state/smoke/approval.json")); err != nil {
+		t.Fatal(err)
+	}
+	code, response = run("import-approval", "--from", ".pdd/reviews/smoke.json")
+	if code != 0 {
+		t.Fatal(response)
+	}
+	restoredApproval := response.Data.(map[string]interface{})
+	if restoredApproval["reviewer"] != originalApproval["reviewer"] || restoredApproval["approved_at"] != originalApproval["approved_at"] {
+		t.Fatal("import minted a new assertion")
+	}
 	goBinary, err := exec.LookPath("go")
 	if err != nil {
 		t.Fatal(err)

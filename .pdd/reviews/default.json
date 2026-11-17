@@ -1,0 +1,100 @@
+{
+  "schema": 1,
+  "digest": "1df8b099a531826a7af47fa1967f16178c617681143336927f079216cb27363c",
+  "reviewer": "codex-example-review",
+  "accepted_trust": [
+    "identity-inputs"
+  ],
+  "approved_at": "2026-11-17T09:00:49.547808055Z",
+  "plan_id": "default",
+  "review": {
+    "schema": 1,
+    "plan_id": "default",
+    "plan": {
+      "schema": 1,
+      "name": "Login decision",
+      "intent": "Allow a login exactly when an account exists, its password matches, and it is not locked. Prove both acceptance and rejection in the production Go function.",
+      "non_goals": [
+        "Database lookup and password hashing correctness",
+        "JWT signing, HTTP integration, rate limiting and timing guarantees",
+        "Termination of arbitrary programs; Gobra establishes the specified partial correctness"
+      ],
+      "requirements": [
+        {
+          "id": "login-decision",
+          "text": "Accept exactly existing, password-matching, unlocked accounts.",
+          "kind": "formal",
+          "check": "login-proof",
+          "file": "examples/login/login.go",
+          "function": "DecideLogin",
+          "ensures": "allowed == (accountExists \u0026\u0026 passwordMatches \u0026\u0026 !locked)"
+        },
+        {
+          "id": "login-boundary",
+          "text": "The production Go call returns expected results for the boundary cases.",
+          "kind": "empirical",
+          "check": "login-tests"
+        }
+      ],
+      "checks": [
+        {
+          "id": "login-proof",
+          "kind": "gobra",
+          "files": [
+            "examples/login/login.go"
+          ]
+        },
+        {
+          "id": "login-tests",
+          "kind": "go-test",
+          "package": "./examples/login",
+          "tests": [
+            "TestLoginBoundary"
+          ]
+        }
+      ],
+      "trusted_boundary": [
+        {
+          "id": "identity-inputs",
+          "assumption": "The caller supplies truthful lookup, password-check and lock-state booleans. The example test checks wiring cases, not real database or cryptographic implementations.",
+          "check": "login-tests"
+        }
+      ],
+      "mutations": [
+        {
+          "id": "allow-wrong-password",
+          "requirement": "login-decision",
+          "check": "login-proof",
+          "file": "examples/login/login.go",
+          "find": "return accountExists \u0026\u0026 passwordMatches \u0026\u0026 !locked",
+          "replace": "return accountExists \u0026\u0026 !locked"
+        },
+        {
+          "id": "allow-locked-account",
+          "requirement": "login-decision",
+          "check": "login-proof",
+          "file": "examples/login/login.go",
+          "find": "return accountExists \u0026\u0026 passwordMatches \u0026\u0026 !locked",
+          "replace": "return accountExists \u0026\u0026 passwordMatches"
+        },
+        {
+          "id": "deny-everyone",
+          "requirement": "login-decision",
+          "check": "login-proof",
+          "file": "examples/login/login.go",
+          "find": "return accountExists \u0026\u0026 passwordMatches \u0026\u0026 !locked",
+          "replace": "return false"
+        }
+      ]
+    },
+    "sources": [
+      {
+        "file": "examples/login/login.go",
+        "annotations": [
+          "ensures allowed == (accountExists \u0026\u0026 passwordMatches \u0026\u0026 !locked)",
+          "declarations:package login\n\nfunc DecideLogin(accountExists, passwordMatches, locked bool) (allowed bool) {\n}\n"
+        ]
+      }
+    ]
+  }
+}

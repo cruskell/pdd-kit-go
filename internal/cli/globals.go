@@ -16,7 +16,7 @@ func parseGlobals(args []string, cwd string) (globals, []string, error) {
 	var rest []string
 	// Values of command options belong to those options, even when they happen
 	// to look like global flags. A -- sentinel ends all global option extraction.
-	values := map[string]bool{"--from": true, "--reviewer": true, "--accept-tcb": true, "--expect-digest": true, "--go": true, "--gobra-jar": true, "--timeout": true}
+	values := map[string]bool{"--from": true, "--to": true, "--reviewer": true, "--accept-tcb": true, "--expect-digest": true, "--go": true, "--gobra-jar": true, "--timeout": true}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		key, value, equals := strings.Cut(arg, "=")

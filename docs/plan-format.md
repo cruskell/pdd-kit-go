@@ -13,6 +13,7 @@ The [login example](../examples/login/plan.json) is a complete plan. Identifiers
 | `checks` | Typed Gobra or Go-test invocations; arbitrary shell commands are not supported |
 | `trusted_boundary` | Explicit assumptions with empirical checks |
 | `mutations` | Negative examples, at least one per formal requirement |
+| `inputs` | Optional reviewed snapshot limits and exact asset exclusions; see [input scope](inputs.md) |
 
 ## Requirements and checks
 

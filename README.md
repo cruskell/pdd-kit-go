@@ -4,6 +4,10 @@
 
 This is an independent, working prototype inspired by [Microsoft Research and GitHub Next's PDD Kit](https://githubnext.com/projects/pdd-kit/). It is not an official port or affiliated project. The reference prototype uses Rust/Verus; this project uses [Gobra](https://github.com/viperproject/gobra) for Go. It has no Product-Driven Development dependency.
 
+Versioned binaries, checksums and reproducible build instructions are in
+[distribution](docs/distribution.md). See [CI adoption](docs/ci.md) and
+[troubleshooting/migration](docs/troubleshooting.md).
+
 ## Quick start
 
 The CLI uses only Go's standard library. Build with Go 1.20+ on a 64-bit host. Formal checks additionally require Docker and the pinned Gobra image, or a local Gobra jar with Java and Z3 configured.
@@ -64,6 +68,8 @@ pdd --cwd /path/to/repo prove
 | `plan` | Display intent, formal clauses, trust assumptions, mutations and exclusions; `--diff` shows changes since review |
 | `lint` | Validate mappings against production Go and ensure every formal clause has a mutation |
 | `approve` | Record a reviewer assertion bound to the plan, declarations and proof annotations |
+| `export-approval` | Save an existing complete review with `--to PATH` |
+| `import-approval` | Restore a matching review with `--from PATH`, preserving its assertion |
 | `prove` | Run all approved checks and mutations in scratch copies; write JSON/Markdown receipts and logs |
 | `status` | Reject unsuccessful, stale or damaged evidence |
 | `doctor` | Check Go and the pinned Docker image, or Java/local jar prerequisites |
@@ -89,6 +95,12 @@ bin/pdd --plan authorization status
 
 This keeps the default login demonstration and its approval independent. `go test ./examples/authorization/...` exercises the production Go call path without running Gobra.
 
+## Runnable HTTP example
+
+The [HTTP wallet](examples/httpwallet/README.md) puts a verified production decision
+behind a real HTTP handler. Tests cover JSON/session boundaries and concurrent TCP
+withdrawals; its plan distinguishes empirical evidence from formal proof.
+
 ## What counts as success
 
 - A formal requirement maps to an exact `ensures` clause on a named production function or receiver-qualified method, with at least one negative mutation.
@@ -104,7 +116,7 @@ There is no automatic fallback from failed formal verification to a green test r
 
 Verification and approval are protected by an OS-backed project lock, automatically released when the owning process exits. Concurrent runs are rejected. `.pdd/run.json` identifies the newest run; an interrupted or incomplete newest run cannot fall back to an older success. SIGINT/SIGTERM cancellation and per-check timeouts terminate child process groups on supported Unix hosts, and the Docker backend removes its verifier container. A canceled run records negative evidence.
 
-Default-plan artifacts live under `.pdd/receipts/<UTC-run-id>/` (named plans use `.pdd/state/NAME/receipts/`): `receipt.json`, `receipt.md` and per-check logs. Receipts include source/plan SHA-256 digests, reviewer assertion, commit (when present), tool identities, commands, durations, outcomes, mutation results, trust assumptions, exclusions and gaps. They are ignored by Git; CI uploads them as artifacts.
+Default-plan artifacts live under `.pdd/receipts/<UTC-run-id>/` (named plans use `.pdd/state/NAME/receipts/`): `receipt.json`, `receipt.md`, `inputs.json` and per-check logs. Receipts include source/plan SHA-256 digests, reviewer assertion, commit (when present), tool identities, commands, durations, outcomes, mutation results, trust assumptions, exclusions and gaps. They are ignored by Git; CI uploads them as artifacts.
 
 Approvals and receipts are **local, unsigned attestations**, not authentication, a cryptographic proof certificate, or protection against a malicious project owner. Hash checks catch stale or accidentally altered artifacts. The Go compiler, Gobra/Viper/Z3, host environment and dependency behavior remain trusted. Go tests and a local jar execute with your user permissions; scratch copies protect source organization but are not an OS security sandbox. The Docker verifier has a read-only source mount and no network.
 
@@ -120,7 +132,7 @@ The adapter rejects external/standard-library proof imports, `go.mod` replacemen
 
 A proof establishes stated properties under the verifier's semantics and assumptions. It does not show that the intent is complete, a precondition is satisfiable, or every behavior terminates. Negative mutations detect specific weak contracts; they are not a complete vacuity or specification-completeness analysis. The proof applies to the files given to Gobra, not automatically to every caller or the whole application.
 
-Snapshots include regular tracked and untracked files up to 16 MiB each, excluding `.git/`, `.pdd/`, `bin/` and `dist/`. Symlinks are rejected. Keep production code out of excluded artifact directories. Named tests must target one local package.
+Snapshots include regular tracked and untracked files and empty directories, preserving permissions. Defaults are 16 MiB per file, 128 MiB total and 20,000 files; `.git/`, `.pdd/`, `bin/` and `dist/` are excluded. A reviewed `inputs` policy can raise limits and exclude unrelated assets. Required Go sources, local dependencies, embedded inputs and testdata cannot be excluded. Symlinks and special files are rejected. See [input scope](docs/inputs.md). Named tests must target one local package.
 
 ## Development
 
@@ -131,6 +143,6 @@ go vet ./...
 PDD_INTEGRATION=1 go test ./internal/pdd -run 'TestGobra.*Integration' -v -count=1
 ```
 
-The integration tests invoke the real pinned Gobra image, compile/run Go boundary tests, verify an importing handler and a separate policy package with a value-receiver method, and reject deliberately wrong production implementations. GitHub Actions runs unit/race tests and that integration test, then generates and uploads the demo receipt. CI approval is explicitly named `ci-demo`; it is a reproducibility exercise, not a human approval of a production specification.
+The integration tests invoke the real pinned Gobra image, compile/run Go boundary and HTTP tests, verify an importing handler, a separate policy package with a value-receiver method and the wallet decision, and reject deliberately wrong production implementations. GitHub Actions runs unit/race tests and that integration test, then generates and uploads the demo receipt. CI imports committed `codex-example-review` assertions; it never auto-approves current intent. These are agent-authored demonstration reviews. See [reviewed CI adoption](docs/ci.md) for production use.
 
 [Practical release checklist](docs/practical-readiness.md) · [Design and source references](docs/design.md) · [MIT license](LICENSE)

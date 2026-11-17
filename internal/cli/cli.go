@@ -26,6 +26,8 @@ Usage: pdd [--cwd DIR] [--plan NAME] [--json] <command> [options]
   plan       Review intent, contracts, checks and trust; --diff shows changes
   lint       Validate the selected plan and production Go contract mappings
   approve    Record review: --reviewer NAME [--accept-tcb id1,id2]
+  export-approval  Save the current reviewed assertion: --to PATH
+  import-approval  Restore a matching reviewed assertion: --from PATH
   prove      Run approved Gobra proofs, named Go tests and negative mutations
   status     Check whether this plan's latest receipt is current and successful
   doctor     Check Go and Docker/Java prerequisites
@@ -103,7 +105,7 @@ func Run(args []string, out, errOut io.Writer, version string) (exitCode int) {
 			fmt.Fprint(out, help)
 		}
 	}
-	var reviewer, accepted, expected, goExe, jar, from string
+	var reviewer, accepted, expected, goExe, jar, from, to string
 	var timeout time.Duration
 	var diff bool
 	switch command {
@@ -117,6 +119,10 @@ func Run(args []string, out, errOut io.Writer, version string) (exitCode int) {
 		fs.StringVar(&goExe, "go", "go", "Go executable")
 		fs.StringVar(&jar, "gobra-jar", "", "Local Gobra jar instead of Docker")
 		fs.DurationVar(&timeout, "timeout", 2*time.Minute, "Timeout per check")
+	case "export-approval":
+		fs.StringVar(&to, "to", "", "Destination for the existing reviewed assertion")
+	case "import-approval":
+		fs.StringVar(&from, "from", "", "Previously reviewed approval artifact")
 	case "init":
 		fs.StringVar(&from, "from", "", "Import a schema-1 plan file as an unapproved draft")
 	case "plans", "lint", "status":
@@ -205,6 +211,23 @@ func Run(args []string, out, errOut io.Writer, version string) (exitCode int) {
 		}
 		if !global.json {
 			fmt.Fprintln(out, "Recorded approval for", approval.Digest)
+		}
+		return printer.finish(0, approval, "", nil, "")
+	case "export-approval", "import-approval":
+		if (command == "export-approval" && to == "") || (command == "import-approval" && from == "") {
+			return printer.finish(2, nil, "usage", fmt.Errorf("%s requires --to or --from respectively", command), "")
+		}
+		var approval pdd.Approval
+		if command == "export-approval" {
+			approval, err = pdd.ExportApproval(cwd, plan, to)
+		} else {
+			approval, err = pdd.ImportApproval(cwd, plan, from)
+		}
+		if err != nil {
+			return printer.finish(1, nil, "approval", err, "Import only a complete saved review matching this plan; changed intent requires review and approval.")
+		}
+		if !global.json {
+			fmt.Fprintf(out, "%s: preserved approval %s by %s\n", command, approval.Digest, approval.Reviewer)
 		}
 		return printer.finish(0, approval, "", nil, "")
 	case "prove":

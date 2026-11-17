@@ -25,6 +25,7 @@ const ApprovalPath = ".pdd/approval.json"
 const GobraImage = "ghcr.io/viperproject/gobra@sha256:5e96431b06c2e6209aa767df9153bb4cf8b2620598598f1d7d3f3a74c09c14f9"
 
 type Plan struct {
+	Inputs       *InputPolicy `json:"inputs,omitempty"`
 	selectedName string
 	Schema       int           `json:"schema"`
 	Name         string        `json:"name"`
@@ -78,20 +79,9 @@ var idRE = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 var testRE = regexp.MustCompile(`^Test[A-Z0-9_][a-zA-Z0-9_]*$`)
 
 func ReadJSON(path string, v interface{}) error {
-	if err := NoSymlinks(path); err != nil {
-		return err
-	}
-	f, err := os.Open(path)
+	data, err := readArtifact(path, 8<<20)
 	if err != nil {
 		return err
-	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, (8<<20)+1))
-	if err != nil {
-		return err
-	}
-	if len(data) > 8<<20 {
-		return fmt.Errorf("%s: JSON exceeds 8 MiB", path)
 	}
 	if err = uniqueJSONKeys(data); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
@@ -153,9 +143,12 @@ func readSource(root, path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return os.ReadFile(abs)
+	return readArtifact(abs, 256<<20)
 }
 func (p Plan) Validate(root string) error {
+	if _, err := effectivePolicy(p.Inputs); err != nil {
+		return err
+	}
 	if p.Schema != 1 {
 		return fmt.Errorf("only plan schema 1 is supported")
 	}
@@ -191,6 +184,18 @@ func (p Plan) Validate(root string) error {
 				}
 				if filepath.Ext(f) != ".go" || strings.HasSuffix(f, "_test.go") {
 					return fmt.Errorf("%s: prove production .go files directly", c.ID)
+				}
+				policy, _ := effectivePolicy(p.Inputs)
+				absolute, err := Local(root, f)
+				if err != nil {
+					return err
+				}
+				info, err := os.Stat(absolute)
+				if err != nil {
+					return err
+				}
+				if info.Size() > policy.MaxFileBytes {
+					return fmt.Errorf("%s exceeds the reviewed per-file input limit", f)
 				}
 				b, err := readSource(root, f)
 				if err != nil {
@@ -357,6 +362,9 @@ func (p Plan) Validate(root string) error {
 		if r.Kind == "formal" && mutants[r.ID] == 0 {
 			return fmt.Errorf("%s: formal clause requires at least one mutation", r.ID)
 		}
+	}
+	if err := validateInputs(root, p); err != nil {
+		return err
 	}
 	return nil
 }
@@ -546,11 +554,15 @@ func CheckApproval(root string, p Plan) error {
 	if err := ReadJSON(filepath.Join(root, p.stateFile("approval.json")), &a); err != nil {
 		return fmt.Errorf("plan is not approved: %w", err)
 	}
+	return validateApproval(root, p, a)
+}
+
+func validateApproval(root string, p Plan, a Approval) error {
 	digest, err := Digest(root, p)
 	if err != nil {
 		return err
 	}
-	if a.Schema != 1 || !matchesPlanID(a.PlanID, p) || a.Digest != digest || a.Reviewer == "" || a.ApprovedAt.IsZero() {
+	if a.Schema != 1 || !matchesPlanID(a.PlanID, p) || a.Digest != digest || strings.TrimSpace(a.Reviewer) == "" || a.ApprovedAt.IsZero() {
 		return fmt.Errorf("approval is stale or invalid; review the current plan and contracts")
 	}
 	if a.Review != nil {

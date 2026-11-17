@@ -129,3 +129,17 @@ func TestProjectLockRecoversAfterProcessCrash(t *testing.T) {
 	}
 	unlock()
 }
+
+func TestSpecialFilesCannotBlockSourceValidation(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "blocked.go")
+	if err := syscall.Mkfifo(path, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readSource(root, "blocked.go"); err == nil {
+		t.Fatal("FIFO accepted as source")
+	}
+	if _, err := Capture(root); err == nil {
+		t.Fatal("FIFO accepted in snapshot")
+	}
+}

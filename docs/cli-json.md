@@ -28,6 +28,7 @@ unknown fields inside `data`.
 | `plans` | Array of `{id, name?, file, valid, error?}`; valid means structurally valid, not proved |
 | `plan` | `digest`, `bundle`, `verification_order`, `dependencies`, `approval`, `changes_available`, `changes` |
 | `lint` | `valid`, `digest`, `plan_path`, requirement/check counts |
+| `export-approval`, `import-approval` | Existing complete approval assertion; reviewer and timestamp are preserved |
 | `approve` | Approval assertion with plan identity, reviewer, digest, trust IDs, timestamp and frozen `review` |
 | `prove`, `status` | `current`, optional `receipt`, optional JSON receipt `path` |
 | `doctor` | Ordered prerequisite `checks` and the pinned-image `docker_pull` command |

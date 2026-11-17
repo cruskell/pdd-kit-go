@@ -38,6 +38,11 @@ func renderReview(out io.Writer, report pdd.ReviewReport, diff bool) {
 	for _, limit := range plan.NonGoals {
 		fmt.Fprintln(out, " -", limit)
 	}
+	fmt.Fprintln(out, "\nInput scope: default 16 MiB/file, 128 MiB total, 20000 files; excludes root .git, .pdd, bin, dist.")
+	if plan.Inputs != nil {
+		policy, _ := json.Marshal(plan.Inputs)
+		fmt.Fprintln(out, "  Reviewed overrides (zero limits use defaults):", string(policy))
+	}
 	fmt.Fprintln(out, "\nMutations:")
 	for _, mutation := range plan.Mutations {
 		fmt.Fprintf(out, "  %s -> %s: %q => %q\n", mutation.ID, mutation.Requirement, mutation.Find, mutation.Replace)

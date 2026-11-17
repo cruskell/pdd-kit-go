@@ -38,6 +38,7 @@ type Verdict struct {
 	Check  string `json:"check"`
 }
 type Receipt struct {
+	Inputs       *InputRecord      `json:"inputs,omitempty"`
 	PlanID       string            `json:"plan_id,omitempty"`
 	Schema       int               `json:"schema"`
 	Version      string            `json:"version"`
@@ -90,11 +91,6 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 		return receipt, "", err
 	}
 	receipt.PlanDigest = digest
-	source, err := Capture(root)
-	if err != nil {
-		return receipt, "", err
-	}
-	receipt.SourceDigest = source.Hash
 	if b, err := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output(); err == nil {
 		receipt.GitCommit = strings.TrimSpace(string(b))
 	}
@@ -124,14 +120,26 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 			_ = WriteJSON(filepath.Join(root, p.stateFile("run.json")), state)
 		}
 	}()
+	source, err := CaptureContext(ctx, root, p.Inputs)
+	if err != nil {
+		return receipt, "", err
+	}
+	receipt.SourceDigest = source.Hash
+	inputRecord := source.Record()
+	receipt.Inputs = &inputRecord
+	if err = WriteJSON(filepath.Join(dir, "inputs.json"), source.Manifest); err != nil {
+		return receipt, "", err
+	}
+	manifestBytes, err := readArtifact(filepath.Join(dir, "inputs.json"), 8<<20)
+	if err != nil {
+		return receipt, "", err
+	}
+	receipt.Inputs.ManifestSHA256 = hashBytes(manifestBytes)
 	scratch, err := os.MkdirTemp("", "pdd-baseline-")
 	if err != nil {
 		return receipt, "", err
 	}
-	defer os.RemoveAll(scratch)
-	if err = source.Materialize(scratch); err != nil {
-		return receipt, "", err
-	}
+	defer removeScratch(scratch)
 	progress := options.Progress
 	if progress == nil {
 		progress = func(string) {}
@@ -145,16 +153,38 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 		}
 		return name, hashBytes([]byte(e.Output)), nil
 	}
+	recordExecution := func(c Check, e Execution) error {
+		executions[c.ID] = e
+		log, hash, err := saveLog(c.ID, e)
+		if err != nil {
+			return err
+		}
+		kind := "empirical"
+		if c.Kind == "gobra" {
+			kind = "formal"
+		}
+		receipt.Evidence = append(receipt.Evidence, Evidence{Check: c.ID, Kind: kind, Execution: e, Log: log, LogSHA256: hash, Dependencies: graph.Dependencies[c.ID]})
+		if e.Status != "passed" {
+			receipt.Gaps = append(receipt.Gaps, c.ID+": "+e.Status+" "+e.Detail)
+		}
+		return nil
+	}
 	for _, c := range graph.Order {
 		checks[c.ID] = c
 		progress("Checking " + c.ID + " (" + c.Kind + ")")
-		if err = os.RemoveAll(scratch); err != nil {
+		if ctx.Err() != nil {
+			if err = recordExecution(c, Execution{Status: "canceled", ExitCode: -1, Detail: ctx.Err().Error()}); err != nil {
+				return receipt, "", err
+			}
+			continue
+		}
+		if err = removeScratch(scratch); err != nil {
 			return receipt, "", err
 		}
 		if err = os.MkdirAll(scratch, 0755); err != nil {
 			return receipt, "", err
 		}
-		if err = source.Materialize(scratch); err != nil {
+		if err = source.MaterializeContext(ctx, scratch); err != nil {
 			return receipt, "", err
 		}
 		var blocked []string
@@ -171,23 +201,18 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 				e = runner.Run(ctx, scratch, c)
 			}
 		}
-		after, captureErr := Capture(scratch)
-		if captureErr != nil || after.Hash != source.Hash {
+		after, captureErr := CaptureContext(ctx, scratch, p.Inputs)
+		if captureErr != nil {
+			if ctx.Err() == nil {
+				e.Status = "failed"
+				e.Detail = "could not confirm check input snapshot: " + captureErr.Error()
+			}
+		} else if after.Hash != source.Hash {
 			e.Status = "failed"
 			e.Detail = "check modified its source snapshot"
 		}
-		executions[c.ID] = e
-		log, hash, err := saveLog(c.ID, e)
-		if err != nil {
+		if err = recordExecution(c, e); err != nil {
 			return receipt, "", err
-		}
-		kind := "empirical"
-		if c.Kind == "gobra" {
-			kind = "formal"
-		}
-		receipt.Evidence = append(receipt.Evidence, Evidence{Check: c.ID, Kind: kind, Execution: e, Log: log, LogSHA256: hash, Dependencies: graph.Dependencies[c.ID]})
-		if e.Status != "passed" {
-			receipt.Gaps = append(receipt.Gaps, c.ID+": "+e.Status+" "+e.Detail)
 		}
 	}
 	// Tests/verifiers may write generated files; always build each mutant from the
@@ -205,20 +230,24 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 			if err != nil {
 				return receipt, "", err
 			}
-			err = source.Materialize(temp)
+			err = source.MaterializeContext(ctx, temp)
 			if err == nil {
 				var b []byte
 				b, err = Mutate(m, reqs[m.Requirement], source.Files[m.File])
 				if err == nil {
-					err = os.WriteFile(filepath.Join(temp, filepath.FromSlash(m.File)), b, 0644)
+					target := filepath.Join(temp, filepath.FromSlash(m.File))
+					err = os.Chmod(target, 0644)
+					if err == nil {
+						err = os.WriteFile(target, b, 0644)
+					}
 				}
 			}
 			if err != nil {
-				os.RemoveAll(temp)
+				removeScratch(temp)
 				return receipt, "", err
 			}
 			mr.Execution = runner.Run(ctx, temp, checks[m.Check])
-			os.RemoveAll(temp)
+			removeScratch(temp)
 			mr.Status = "inconclusive"
 			if mr.Execution.Status == "passed" {
 				mr.Status = "survived"
@@ -273,8 +302,12 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 		receipt.Requirements = append(receipt.Requirements, v)
 	}
 	// Detect changes in original source, plan, approval, or frozen annotations.
-	current, err := Capture(root)
-	if err != nil || current.Hash != source.Hash {
+	inputAuditIncomplete := false
+	current, err := CaptureContext(ctx, root, p.Inputs)
+	if err != nil {
+		inputAuditIncomplete = true
+		receipt.Gaps = append(receipt.Gaps, "could not confirm current inputs: "+err.Error())
+	} else if current.Hash != source.Hash {
 		receipt.Gaps = append(receipt.Gaps, "source changed during verification")
 	}
 	latest, err := LoadNamed(root, p.ID())
@@ -298,7 +331,7 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 	receipt.FinishedAt = time.Now().UTC()
 	if !receipt.Success {
 		for i := range receipt.Requirements {
-			if strings.Contains(strings.Join(receipt.Gaps, " "), "changed during verification") {
+			if inputAuditIncomplete || strings.Contains(strings.Join(receipt.Gaps, " "), "changed during verification") {
 				receipt.Requirements[i].Status = "unproven"
 			}
 		}
@@ -329,6 +362,11 @@ func Markdown(r Receipt) string {
 	fmt.Fprintf(&b, "Reviewer assertion: **%s** at %s\n\n", r.Approval.Reviewer, r.Approval.ApprovedAt.Format(time.RFC3339))
 	if r.GitCommit != "" {
 		fmt.Fprintf(&b, "Commit: `%s`\n\n", r.GitCommit)
+	}
+	if r.Inputs != nil {
+		fmt.Fprintf(&b, "Input scope: %d files, %d directories, %d bytes; algorithm `%s`. [Manifest](%s)\n\n", r.Inputs.Files, r.Inputs.Directories, r.Inputs.Bytes, r.Inputs.Algorithm, r.Inputs.Manifest)
+		policy, _ := json.Marshal(r.Inputs.Policy)
+		fmt.Fprintf(&b, "Reviewed effective input policy: `%s`\n\n", policy)
 	}
 	fmt.Fprintln(&b, "| Requirement | Verification | Result |\n| --- | --- | --- |")
 	for _, v := range r.Requirements {
@@ -425,6 +463,13 @@ func Status(root string, p Plan) (Receipt, string, error) {
 	if len(receipt.Evidence) != len(p.Checks) || len(receipt.Requirements) != len(p.Requirements) || len(receipt.Mutations) != len(p.Mutations) {
 		return receipt, dir, fmt.Errorf("receipt is missing planned evidence")
 	}
+	trustJSON, _ := json.Marshal(receipt.Trust)
+	wantTrustJSON, _ := json.Marshal(p.Trust)
+	limitsJSON, _ := json.Marshal(receipt.NonGoals)
+	wantLimitsJSON, _ := json.Marshal(p.NonGoals)
+	if !bytes.Equal(trustJSON, wantTrustJSON) || !bytes.Equal(limitsJSON, wantLimitsJSON) {
+		return receipt, dir, fmt.Errorf("receipt trust or limitations differ from reviewed plan")
+	}
 	if receipt.Success {
 		if len(receipt.Gaps) != 0 {
 			return receipt, dir, fmt.Errorf("receipt success contradicts its gaps")
@@ -444,12 +489,16 @@ func Status(root string, p Plan) (Receipt, string, error) {
 			e, ok := evidenceByID[c.ID]
 			deps := append([]string{}, e.Dependencies...)
 			sort.Strings(deps)
-			if !ok || e.Execution.Status != "passed" || strings.Join(deps, ",") != strings.Join(graph.Dependencies[c.ID], ",") {
+			kind := "formal"
+			if c.Kind == "go-test" {
+				kind = "empirical"
+			}
+			if !ok || e.Kind != kind || e.Execution.Status != "passed" || e.Execution.ExitCode != 0 || strings.Join(deps, ",") != strings.Join(graph.Dependencies[c.ID], ",") {
 				return receipt, dir, fmt.Errorf("receipt lacks a passing check or its verified dependencies")
 			}
 		}
 		for i, m := range receipt.Mutations {
-			if m.ID != p.Mutations[i].ID || m.Status != "killed" {
+			if m.ID != p.Mutations[i].ID || m.Requirement != p.Mutations[i].Requirement || m.Status != "killed" || m.Execution.Status != "failed" || m.Execution.ExitCode <= 0 {
 				return receipt, dir, fmt.Errorf("receipt lacks a killed mutation")
 			}
 		}
@@ -458,7 +507,7 @@ func Status(root string, p Plan) (Receipt, string, error) {
 			if p.Requirements[i].Kind == "formal" {
 				want = "proved"
 			}
-			if v.ID != p.Requirements[i].ID || v.Kind != p.Requirements[i].Kind || v.Status != want {
+			if v.ID != p.Requirements[i].ID || v.Kind != p.Requirements[i].Kind || v.Check != p.Requirements[i].Check || v.Status != want {
 				return receipt, dir, fmt.Errorf("receipt has an unsupported verdict")
 			}
 		}
@@ -467,18 +516,45 @@ func Status(root string, p Plan) (Receipt, string, error) {
 	if err != nil {
 		return receipt, dir, err
 	}
-	snapshot, err := Capture(root)
+	snapshot, err := CaptureContext(context.Background(), root, p.Inputs)
 	if err != nil {
 		return receipt, dir, err
 	}
 	if digest != receipt.PlanDigest || snapshot.Hash != receipt.SourceDigest {
 		return receipt, dir, fmt.Errorf("stale receipt: plan, contracts or source changed")
 	}
+	if receipt.Inputs == nil {
+		return receipt, dir, fmt.Errorf("receipt lacks input provenance; run prove again")
+	}
+	if receipt.Inputs != nil {
+		expected := snapshot.Record()
+		expected.ManifestSHA256 = receipt.Inputs.ManifestSHA256
+		expectedJSON, _ := json.Marshal(expected)
+		recordedJSON, _ := json.Marshal(receipt.Inputs)
+		if !bytes.Equal(expectedJSON, recordedJSON) {
+			return receipt, dir, fmt.Errorf("input summary does not match current reviewed scope")
+		}
+		if receipt.Inputs.Algorithm != snapshot.Manifest.Algorithm || receipt.Inputs.Manifest != "inputs.json" {
+			return receipt, dir, fmt.Errorf("invalid input manifest reference")
+		}
+		manifestBytes, err := readArtifact(filepath.Join(dir, "inputs.json"), 8<<20)
+		if err != nil || hashBytes(manifestBytes) != receipt.Inputs.ManifestSHA256 {
+			return receipt, dir, fmt.Errorf("missing or altered input manifest")
+		}
+		var manifest InputManifest
+		if err = ReadJSON(filepath.Join(dir, "inputs.json"), &manifest); err != nil {
+			return receipt, dir, err
+		}
+		encoded, _ := json.Marshal(manifest)
+		if hashBytes(encoded) != receipt.SourceDigest {
+			return receipt, dir, fmt.Errorf("input manifest does not match source digest")
+		}
+	}
 	checkLog := func(name, hash string) error {
 		if name == "" || filepath.Base(name) != name {
 			return fmt.Errorf("invalid log reference")
 		}
-		b, err := os.ReadFile(filepath.Join(dir, name))
+		b, err := readArtifact(filepath.Join(dir, name), (8<<20)+1024)
 		if err != nil || hashBytes(b) != hash {
 			return fmt.Errorf("missing or altered log %s", name)
 		}

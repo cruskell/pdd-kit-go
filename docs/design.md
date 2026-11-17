@@ -18,13 +18,14 @@ The selected image is Gobra `v26.09`, resolved and pinned to `sha256:5e96431b06c
 - `internal/cli` parses typed commands and exposes review/approval operations.
 - `internal/pdd/plan.go` validates the intent-to-contract map, freezes contracts and records approval assertions.
 - `packages.go` resolves complete same-module proof packages, receiver-qualified symbols and the dependency DAG. It rejects ambiguous import resolution and unverified callee packages.
-- `snapshot.go` captures input bytes and creates separate check and mutation workspaces.
+- `inputs.go` validates reviewed asset exclusions and the protected Go input closure; `snapshot.go` captures bounded inputs, modes and directories and creates separate check/mutation workspaces.
+- `approval_transfer.go` exports/imports complete matching reviews without minting CI approvals.
 - `runner.go` invokes only Gobra and named Go tests, distinguishes operational failures and validates actual results.
 - `prove.go` joins the evidence, rejects gaps and staleness, and writes receipts.
 
 Formal evidence covers exactly the clauses checked by the Gobra invocation. The production function is both compiled by Go and passed directly to Gobra. The baseline check succeeds first; each mutant must then fail on the target clause. No successful test can replace a failed formal obligation.
 
-The CLI is an orchestration tool, not another theorem prover. Its approval records, parser, command runner, snapshots and receipt generation are tested empirically. The example's login contract is the part formally checked by Gobra. Test doubles exercise orchestration failure paths; a separate integration test uses the real verifier. No test-double outcome is presented as a real formal verification result in the delivered demonstration.
+The CLI is an orchestration tool, not another theorem prover. Its approval records, parser, command runner, snapshots and receipt generation are tested empirically. The login, multi-package authorization and HTTP wallet decision contracts are formally checked by Gobra. Test doubles exercise orchestration failure paths; a separate integration test uses the real verifier. No test-double outcome is presented as a real formal verification result in the delivered demonstration.
 
 ## Trust and limitations
 

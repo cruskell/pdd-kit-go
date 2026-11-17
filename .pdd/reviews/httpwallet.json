@@ -1,0 +1,120 @@
+{
+  "schema": 1,
+  "digest": "2ae5d33608b29229bc1e02a3e4030bc883804028f193c9bfbcb781f81e28db02",
+  "reviewer": "codex-example-review",
+  "accepted_trust": [
+    "wallet-runtime",
+    "wallet-sessions"
+  ],
+  "approved_at": "2026-11-17T09:00:49.561731502Z",
+  "plan_id": "httpwallet",
+  "review": {
+    "schema": 1,
+    "plan_id": "httpwallet",
+    "plan": {
+      "schema": 1,
+      "name": "Verified HTTP wallet decision",
+      "intent": "The HTTP withdrawal endpoint must use the verified production decision, allowing a withdrawal exactly for an authenticated, unlocked account with a positive amount within its balance. Exercise request decoding, sessions and atomic state updates empirically.",
+      "non_goals": [
+        "The static demo tokens are not production authentication; no TLS, identity proof, persistence, payment settlement or distributed consistency is provided.",
+        "Gobra proves the pure decision only; HTTP decoding, the session mapping, synchronization and state updates have empirical evidence, not formal proof.",
+        "Availability, fairness, transport failure recovery and exactly-once request semantics are outside scope."
+      ],
+      "requirements": [
+        {
+          "id": "withdrawal-policy",
+          "text": "Accept exactly authenticated, unlocked withdrawals with positive amount no greater than balance.",
+          "kind": "formal",
+          "check": "withdrawal-proof",
+          "file": "examples/httpwallet/policy/policy.go",
+          "function": "CanWithdraw",
+          "ensures": "allowed == (authenticated \u0026\u0026 !locked \u0026\u0026 amount \u003e 0 \u0026\u0026 amount \u003c= balance)"
+        },
+        {
+          "id": "http-boundary",
+          "text": "HTTP method, path, session and withdrawal boundaries return expected status and balance, without changing funds on rejection.",
+          "kind": "empirical",
+          "check": "http-tests"
+        },
+        {
+          "id": "http-decoding",
+          "text": "Malformed, oversized, ambiguous and unknown request inputs are rejected without changing funds.",
+          "kind": "empirical",
+          "check": "http-tests"
+        },
+        {
+          "id": "atomic-withdrawals",
+          "text": "Concurrent requests through a real local HTTP server spend the initial balance exactly once without overdraft.",
+          "kind": "empirical",
+          "check": "http-tests"
+        }
+      ],
+      "checks": [
+        {
+          "id": "withdrawal-proof",
+          "kind": "gobra",
+          "files": [
+            "examples/httpwallet/policy/policy.go"
+          ]
+        },
+        {
+          "id": "http-tests",
+          "kind": "go-test",
+          "package": "./examples/httpwallet/app",
+          "tests": [
+            "TestWithdrawalHTTP",
+            "TestMalformedHTTP",
+            "TestConcurrentHTTPWithdrawals"
+          ]
+        }
+      ],
+      "trusted_boundary": [
+        {
+          "id": "wallet-sessions",
+          "assumption": "The configured session mapping identifies the correct account and lock state; demo tokens are public test credentials. Tests exercise known, unknown, locked and ambiguous tokens but cannot establish a real identity provider's truthfulness.",
+          "check": "http-tests"
+        },
+        {
+          "id": "wallet-runtime",
+          "assumption": "Go integer/JSON/HTTP implementations and mutex semantics are trusted. Race and TCP concurrency tests exercise parsing and an atomic in-memory update; they do not prove the runtime or provide durable financial guarantees.",
+          "check": "http-tests"
+        }
+      ],
+      "mutations": [
+        {
+          "id": "ignore-session-lock",
+          "requirement": "withdrawal-policy",
+          "check": "withdrawal-proof",
+          "file": "examples/httpwallet/policy/policy.go",
+          "find": "return authenticated \u0026\u0026 !locked \u0026\u0026 amount \u003e 0 \u0026\u0026 amount \u003c= balance",
+          "replace": "return authenticated \u0026\u0026 amount \u003e 0 \u0026\u0026 amount \u003c= balance"
+        },
+        {
+          "id": "allow-zero-withdrawal",
+          "requirement": "withdrawal-policy",
+          "check": "withdrawal-proof",
+          "file": "examples/httpwallet/policy/policy.go",
+          "find": "return authenticated \u0026\u0026 !locked \u0026\u0026 amount \u003e 0 \u0026\u0026 amount \u003c= balance",
+          "replace": "return authenticated \u0026\u0026 !locked \u0026\u0026 amount \u003e= 0 \u0026\u0026 amount \u003c= balance"
+        },
+        {
+          "id": "allow-overdraft",
+          "requirement": "withdrawal-policy",
+          "check": "withdrawal-proof",
+          "file": "examples/httpwallet/policy/policy.go",
+          "find": "return authenticated \u0026\u0026 !locked \u0026\u0026 amount \u003e 0 \u0026\u0026 amount \u003c= balance",
+          "replace": "return authenticated \u0026\u0026 !locked \u0026\u0026 amount \u003e 0"
+        }
+      ]
+    },
+    "sources": [
+      {
+        "file": "examples/httpwallet/policy/policy.go",
+        "annotations": [
+          "ensures allowed == (authenticated \u0026\u0026 !locked \u0026\u0026 amount \u003e 0 \u0026\u0026 amount \u003c= balance)",
+          "declarations:package policy\n\nfunc CanWithdraw(authenticated, locked bool, amount, balance int) (allowed bool) {\n}\n"
+        ]
+      }
+    ]
+  }
+}

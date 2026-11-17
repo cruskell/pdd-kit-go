@@ -1,0 +1,42 @@
+name: Release artifacts
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version identifier (for example v0.1.0)
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: 1.27.4
+          cache: false
+      - run: go test -race ./...
+      - run: go vet ./...
+      - name: Build versioned artifacts twice
+        run: |
+          python3 scripts/release.py "$RELEASE_VERSION" --out dist/first
+          python3 scripts/release.py "$RELEASE_VERSION" --out dist/second
+          diff -r dist/first dist/second
+          cd dist/first
+          sha256sum --check SHA256SUMS
+      - name: Pull pinned verifier and test extracted binary
+        run: |
+          docker pull ghcr.io/viperproject/gobra@sha256:5e96431b06c2e6209aa767df9153bb4cf8b2620598598f1d7d3f3a74c09c14f9
+          mkdir -p dist/extracted
+          tar -xzf "dist/first/pdd-kit-go_${RELEASE_VERSION}_linux_amd64.tar.gz" -C dist/extracted
+          python3 scripts/smoke.py --pdd "dist/extracted/pdd-kit-go_${RELEASE_VERSION}_linux_amd64/pdd" --version "$RELEASE_VERSION"
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: pdd-kit-go-${{ inputs.version }}
+          path: dist/first/
+          if-no-files-found: error
