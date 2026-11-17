@@ -147,7 +147,7 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 		return receipt, "", err
 	}
 	receipt.Inputs.ManifestSHA256 = hashBytes(manifestBytes)
-	scratch, err := os.MkdirTemp("", "pdd-baseline-")
+	scratch, err := createScratch("pdd-baseline-")
 	if err != nil {
 		return receipt, "", err
 	}
@@ -238,7 +238,7 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 		mr := MutationResult{ID: m.ID, Requirement: m.Requirement, Status: "not-run"}
 		if executions[m.Check].Status == "passed" && ctx.Err() == nil {
 			progress("Mutating " + m.ID)
-			temp, err := os.MkdirTemp("", "pdd-mutant-")
+			temp, err := createScratch("pdd-mutant-")
 			if err != nil {
 				return receipt, "", err
 			}

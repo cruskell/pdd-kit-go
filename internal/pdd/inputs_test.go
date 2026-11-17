@@ -238,3 +238,20 @@ func TestReceiptCannotDropProvenanceOrMislabelEvidence(t *testing.T) {
 		}
 	}
 }
+
+func TestProofWorksWithAliasedSystemTemporaryRoot(t *testing.T) {
+	root, p := fixture(t)
+	realTemp := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "system-temp-alias")
+	if err := os.Symlink(realTemp, alias); err != nil {
+		t.Skip("symlink privilege unavailable:", err)
+	}
+	t.Setenv("TMPDIR", alias)
+	t.Setenv("TMP", alias)
+	t.Setenv("TEMP", alias)
+	approveFixture(t, root, p)
+	receipt, _, err := Prove(context.Background(), root, p, Options{Runner: &fakeRunner{}})
+	if err != nil || !receipt.Success {
+		t.Fatalf("system temp alias blocked proof: %v %v", err, receipt.Gaps)
+	}
+}

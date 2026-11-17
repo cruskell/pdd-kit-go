@@ -239,3 +239,13 @@ func removeScratch(root string) error {
 	})
 	return os.RemoveAll(root)
 }
+
+// System temporary roots may contain aliases such as macOS /var -> /private/var.
+// Resolve the operator-selected base once; continue rejecting links within inputs.
+func createScratch(prefix string) (string, error) {
+	base, err := filepath.EvalSymlinks(os.TempDir())
+	if err != nil {
+		return "", err
+	}
+	return os.MkdirTemp(base, prefix)
+}

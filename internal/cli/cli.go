@@ -97,6 +97,10 @@ func Run(args []string, out, errOut io.Writer, version string) (exitCode int) {
 	if err != nil {
 		return printer.finish(2, nil, "usage", err, "")
 	}
+	cwd, err = filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return printer.finish(2, nil, "usage", fmt.Errorf("cannot resolve project directory: %w", err), "")
+	}
 	stat, err := os.Stat(cwd)
 	if err != nil || !stat.IsDir() {
 		return printer.finish(2, nil, "usage", fmt.Errorf("--cwd must name an existing directory"), "")

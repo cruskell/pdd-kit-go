@@ -286,3 +286,18 @@ func TestSignedPolicyCLIEndToEnd(t *testing.T) {
 		t.Fatal("revocation did not fail status", response)
 	}
 }
+
+func TestExplicitProjectDirectoryAliasIsCanonicalized(t *testing.T) {
+	root := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "project-alias")
+	if err := os.Symlink(root, alias); err != nil {
+		t.Skip("symlink privilege unavailable:", err)
+	}
+	var out, diagnostics bytes.Buffer
+	if code := Run([]string{"--cwd", alias, "--json", "init"}, &out, &diagnostics, "test"); code != 0 {
+		t.Fatalf("explicit project alias rejected: %s %s", out.String(), diagnostics.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, ".pdd/plan.json")); err != nil {
+		t.Fatal(err)
+	}
+}
