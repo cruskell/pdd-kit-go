@@ -226,3 +226,23 @@ func verifyPolicy(path string, p Plan, a Approval, now time.Time) (PolicyEvidenc
 	}
 	return PolicyEvidence{Digest: hashBytes(encoded), KeyID: keyID, Reviewer: a.Reviewer}, nil
 }
+
+// Called under the project lock before installing a new active approval. Local
+// draft mode must not silently remove the signature from a previously signed plan.
+func protectSignedApproval(root string, p Plan, next Approval) error {
+	if next.Signature != nil {
+		return nil
+	}
+	var current Approval
+	err := ReadJSON(filepath.Join(root, p.stateFile("approval.json")), &current)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("cannot inspect existing approval before replacement: %w", err)
+	}
+	if current.Signature != nil {
+		return fmt.Errorf("cannot replace a signed approval with an unsigned assertion; renew with --signing-key or import a signed review")
+	}
+	return nil
+}

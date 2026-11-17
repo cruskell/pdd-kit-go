@@ -49,3 +49,29 @@ and the signed-authority job. The current authenticated gate covers both the
 permission-aware slice core and the HTTP wallet with three repeated proofs per
 plan. Consult the current commit's run rather than treating this historical run
 as certification of subsequent changes.
+
+## v0.2.1 integrity audit
+
+`internal/pdd/integrity_test.go` reproduces and prevents concurrent-status reuse,
+unsigned replacement of a signed approval, and successful receipt metadata whose
+logs do not support the named tests/proofs or targeted mutation rejection. It also
+covers canceled status, contradictory verifier summaries and truncated mutant
+output. Diagnostic stderr remains separate from Go JSON events when saved evidence
+is reassessed. Signed renewal remains supported. The real Gobra integration suite
+and native platform jobs exercise these checks with the shipped examples.
+
+The public repository's main branch requires proof, authenticated-gate and the
+three native test jobs, including for administrators; force pushes and deletion
+are disabled. This enforces the configured checks, not a claim of long-term
+production history or support for every possible Go library.
+
+Process qualification also covers a parent that exits while descendants retain its
+pipes, and one whose descendants have detached their output. Unix cleanup runs on
+every completion path. On Windows, the root starts suspended, is assigned to a
+kill-on-close Job Object, and is resumed only after containment is established.
+Cancellation terminates the job; completion closes it, cleaning up descendants.
+Unexpected startup layouts or unavailable job assignment fail closed. This is
+lifecycle containment, not an OS security sandbox for hostile project code.
+The Windows implementation follows Microsoft's [Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
+and [process creation flags](https://learn.microsoft.com/en-us/windows/win32/procthread/process-creation-flags)
+documentation. Native CI must pass before this change is promoted.

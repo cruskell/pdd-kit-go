@@ -106,5 +106,8 @@ func ImportApprovalWithPolicy(root string, p Plan, source, policyPath string) (A
 	if string(a) != string(b) {
 		return approval, fmt.Errorf("imported saved review differs from current intent and contracts")
 	}
+	if err = protectSignedApproval(root, p, approval); err != nil {
+		return approval, err
+	}
 	return approval, WriteJSON(filepath.Join(root, p.stateFile("approval.json")), approval)
 }

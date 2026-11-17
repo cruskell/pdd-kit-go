@@ -40,7 +40,7 @@ type ToolRunner struct {
 	Timeout  time.Duration
 }
 
-var formalPassRE = regexp.MustCompile(`(?i)Gobra found 0 errors\.`)
+var formalSummaryRE = regexp.MustCompile(`(?i)Gobra found ([0-9]+) errors?\.`)
 
 func (r ToolRunner) Run(ctx context.Context, root string, c Check) Execution {
 	goExe := r.Go
@@ -81,15 +81,11 @@ func (r ToolRunner) Run(ctx context.Context, root string, c Check) Execution {
 	if e.Status != "passed" {
 		return e
 	}
-	if c.Kind == "go-test" {
-		if err := validateTests(e.stdout, c.Tests); err != nil {
-			e.Status = "failed"
-			e.Detail = err.Error()
-		}
-	} else if !formalPassRE.MatchString(e.Output) || !strings.Contains(e.Output, "Verifying package") || strings.Contains(strings.ToLower(e.Output), "verification failed") {
+	if err := validateExecutionOutput(c, e.stdout, e.Output); err != nil {
 		e.Status = "failed"
-		e.Detail = "Gobra exited zero without a verification run and success summary"
+		e.Detail = err.Error()
 	}
+
 	return e
 }
 
@@ -113,6 +109,12 @@ func (b *boundedOutput) Write(p []byte) (int, error) {
 	b.b.Write(p)
 	return n, nil
 }
+
+type processControl struct {
+	start   func() error
+	cleanup func(error)
+}
+
 func execute(ctx context.Context, root string, command []string, timeout time.Duration) Execution {
 	e := Execution{Status: "failed", Command: command, ExitCode: -1}
 	if timeout <= 0 {
@@ -122,15 +124,28 @@ func execute(ctx context.Context, root string, command []string, timeout time.Du
 	defer cancel()
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.Dir = root
-	configureProcess(cmd)
+	control, setupErr := configureProcess(cmd, ctx)
+	if setupErr != nil {
+		e.Status = "unavailable"
+		e.Detail = setupErr.Error()
+		return e
+	}
 	cmd.WaitDelay = 2 * time.Second
 	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=", "GOOS="+runtime.GOOS, "GOARCH="+runtime.GOARCH)
 	var output, diagnostics boundedOutput
 	cmd.Stdout = &output
 	cmd.Stderr = &diagnostics
 	start := time.Now()
-	err := cmd.Run()
-	cleanupProcess(cmd, err)
+	err := cmd.Start()
+	if err == nil {
+		if err = control.start(); err != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		} else {
+			err = cmd.Wait()
+		}
+	}
+	control.cleanup(err)
 	e.DurationMS = time.Since(start).Milliseconds()
 	e.stdout = output.b.String()
 	e.Output = e.stdout
@@ -171,6 +186,33 @@ func execute(ctx context.Context, root string, command []string, timeout time.Du
 	e.Status = "passed"
 	return e
 }
+
+// The saved log separates stdout from diagnostic stderr using a literal marker.
+// go test -json encodes newlines inside Output fields, so this separator cannot
+// appear as a raw line inside a valid JSON stdout event.
+func recordedStdout(combined string) string {
+	out, _, _ := strings.Cut(combined, "\n[stderr]\n")
+	return out
+}
+func validateExecutionOutput(c Check, stdout, combined string) error {
+	if strings.Contains(combined, "\n[pdd: output truncated]\n") {
+		return fmt.Errorf("verification output was truncated")
+	}
+	if c.Kind == "go-test" {
+		return validateTests(stdout, c.Tests)
+	}
+	summaries := formalSummaryRE.FindAllStringSubmatch(combined, -1)
+	if len(summaries) == 0 || !strings.Contains(combined, "Verifying package") || strings.Contains(strings.ToLower(combined), "verification failed") {
+		return fmt.Errorf("Gobra exited zero without a verification run and success summary")
+	}
+	for _, summary := range summaries {
+		if summary[1] != "0" {
+			return fmt.Errorf("Gobra output includes a failing verification summary")
+		}
+	}
+	return nil
+}
+
 func validateTests(output string, names []string) error {
 	passed := map[string]bool{}
 	decoder := json.NewDecoder(strings.NewReader(output))
@@ -182,6 +224,9 @@ func validateTests(output string, names []string) error {
 		}
 		if err != nil {
 			return fmt.Errorf("invalid go test JSON: %w", err)
+		}
+		if event.Action == "fail" {
+			return fmt.Errorf("go test output records a failure for %s", event.Test)
 		}
 		if event.Action == "pass" && event.Test != "" {
 			passed[event.Test] = true
@@ -199,7 +244,7 @@ func validateTests(output string, names []string) error {
 // the exact authored clause line. Matching expression text elsewhere is not a
 // rejection of this requirement's mutant.
 func RejectedMutation(e Execution, requirement Requirement, source []byte) bool {
-	if e.Status != "failed" || e.ExitCode <= 0 {
+	if e.Status != "failed" || e.ExitCode <= 0 || strings.Contains(e.Output, "\n[pdd: output truncated]\n") {
 		return false
 	}
 	fset := token.NewFileSet()

@@ -568,6 +568,9 @@ func ApproveSignedWithPolicy(root string, p Plan, reviewer string, accepted []st
 			return Approval{}, err
 		}
 	}
+	if err = protectSignedApproval(root, p, a); err != nil {
+		return Approval{}, err
+	}
 	return a, WriteJSON(filepath.Join(root, p.stateFile("approval.json")), a)
 }
 func CheckApproval(root string, p Plan) error {

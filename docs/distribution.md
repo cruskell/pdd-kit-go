@@ -1,5 +1,17 @@
 # Install and reproduce a release
 
+Versioned binaries and checksums are published on [GitHub Releases](https://github.com/cruskell/pdd-kit-go/releases).
+Go users can install the tagged CLI directly:
+
+```sh
+go install github.com/cruskell/pdd-kit-go/cmd/pdd@v0.2.1
+pdd --version
+```
+
+The installed version comes from Go module build information. Release archives
+embed the same version explicitly; local checkout builds show a development
+version. Verification still needs the Go toolchain and the pinned Gobra backend.
+
 The CLI has no third-party Go dependencies. Development builds need Go 1.20+:
 
 ```sh
@@ -12,10 +24,10 @@ Release builds use the exact Go 1.27.4 toolchain. Fetch it from
 From a clean checkout of the release commit, with Python 3 available:
 
 ```sh
-GO=/path/to/go1.27.4/bin/go python3 scripts/release.py v0.1.0
+GO=/path/to/go1.27.4/bin/go python3 scripts/release.py v0.2.1
 ```
 
-The script produces five archives under `dist/v0.1.0`: Linux amd64/arm64,
+The script produces five archives under `dist/v0.2.1`: Linux amd64/arm64,
 macOS amd64/arm64 and Windows amd64, plus `BUILD.json` and `SHA256SUMS`.
 It disables CGO, VCS stamping and local file paths, embeds the requested CLI
 version, records the commit/toolchain/flags, and normalizes archive metadata.
@@ -55,10 +67,10 @@ example reviews, run actual proofs and HTTP tests, kill mutants and check stale
 source handling. It needs Go and Docker with the pinned image already pulled:
 
 ```sh
-python3 scripts/smoke.py --pdd /absolute/path/to/pdd --version v0.1.0
+python3 scripts/smoke.py --pdd /absolute/path/to/pdd --version v0.2.1
 ```
 
 The [release workflow](../.github/workflows/release.yml) builds and validates
-artifacts on manual dispatch. It uploads CI artifacts and does not publish a
-release or change repository access. A maintainer can attach the verified output
-to a versioned GitHub release after reviewing its checks.
+artifacts on manual dispatch. It uploads CI artifacts without publishing automatically. Validated output can be
+attached to a versioned GitHub release after the source commit passes required
+checks. Release publication never changes repository access.

@@ -47,3 +47,12 @@ an older green receipt. JSON artifacts are independently limited to 8 MiB.
 Receipts made before the v2 input manifest must be regenerated with `prove`.
 Existing contract approvals remain usable when their review digest still matches;
 the input algorithm change alone does not approve new intent.
+
+`status` takes the same exclusive project lock as proof and approval operations.
+It refuses a concurrent operation instead of returning a historical green result.
+Its input capture responds to cancellation, and it rechecks policy authorization
+and expiration after inspecting inputs and logs. Successful receipts must retain
+valid baseline logs (including every named Go test) and the exact targeted mutant
+failure logs. Missing or truncated mutant evidence cannot establish success.
+These checks detect inconsistent local records; receipts remain unsigned and
+cannot authenticate their own execution against a malicious project owner.

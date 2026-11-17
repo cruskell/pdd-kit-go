@@ -82,3 +82,13 @@ Protect the CLI, gate workflow and authority configuration under your existing
 repository/organization policy. Target tests execute host code: run them in an
 isolated, disposable worker without secrets, with read-only trusted tooling where
 possible. This mechanism is not an adversarial sandbox or a signed proof system.
+
+## Preventing accidental downgrade
+
+Once an active approval is signed, ordinary `approve` and `import-approval` cannot
+replace it with an unsigned assertion, even when `--policy` was accidentally
+omitted. Renew using `--signing-key` and the inspected digest, or import another
+valid signed review. The rejection leaves the active approval unchanged. A corrupt
+active record also requires inspection before an unsigned replacement. A project
+owner can deliberately remove local state; the external CI policy must still be
+required independently, since local state is not an authorization boundary.

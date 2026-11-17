@@ -210,7 +210,7 @@ type dependencyRunner struct {
 
 func (r *dependencyRunner) Run(_ context.Context, root string, c Check) Execution {
 	r.calls = append(r.calls, c.ID)
-	e := Execution{Status: "passed", ExitCode: 0, Output: "baseline", Command: []string{"test-double"}}
+	e := passedFixtureExecution(c)
 	policy, _ := os.ReadFile(filepath.Join(root, "policy/policy.go"))
 	handler, _ := os.ReadFile(filepath.Join(root, "handler/handler.go"))
 	pointer, _ := os.ReadFile(filepath.Join(root, "policy/pointer.go"))

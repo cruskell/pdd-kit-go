@@ -3,13 +3,14 @@
 package pdd
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"syscall"
 )
 
-func configureProcess(cmd *exec.Cmd) {
+func configureProcess(cmd *exec.Cmd, _ context.Context) (processControl, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
@@ -21,10 +22,11 @@ func configureProcess(cmd *exec.Cmd) {
 		}
 		return err
 	}
-}
-func cleanupProcess(cmd *exec.Cmd, err error) {
-	// A child retaining stdout/stderr must not outlive an otherwise exited runner.
-	if errors.Is(err, exec.ErrWaitDelay) && cmd.Process != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
+	return processControl{start: func() error { return nil }, cleanup: func(error) {
+		// Descendants are scoped to one check, even when the parent has exited and
+		// they no longer hold its output pipes. Clean up on every completion path.
+		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+	}}, nil
 }

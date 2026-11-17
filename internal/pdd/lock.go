@@ -23,7 +23,7 @@ func lockProject(root string) (func(), error) {
 	}
 	if err = lockFile(f); err != nil {
 		f.Close()
-		return nil, fmt.Errorf("another verification or approval may be using this project: %w", err)
+		return nil, fmt.Errorf("another proof, approval or status operation may be using this project: %w", err)
 	}
 	return func() { _ = f.Close() }, nil
 }
