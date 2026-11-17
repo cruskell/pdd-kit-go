@@ -142,7 +142,10 @@ func TestPlanRejectsHoles(t *testing.T) {
 }
 func TestNamedTestsMustExecute(t *testing.T) {
 	root, _ := fixture(t)
-	runner := ToolRunner{Timeout: 20 * time.Second}
+	// The first non-race child go test may compile a cold standard library
+	// while this parent suite runs with -race. This is a behavior test, not a
+	// speed assertion; cancellation deadlines are covered separately.
+	runner := ToolRunner{Timeout: 2 * time.Minute}
 	for _, test := range []struct{ name, status string }{{"TestBoundary", "passed"}, {"TestMissing", "failed"}, {"TestSkipped", "failed"}} {
 		got := runner.Run(context.Background(), root, Check{ID: "tests", Kind: "go-test", Package: ".", Tests: []string{test.name}})
 		if got.Status != test.status {
