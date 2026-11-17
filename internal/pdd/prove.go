@@ -14,11 +14,12 @@ import (
 )
 
 type Evidence struct {
-	Check     string    `json:"check"`
-	Kind      string    `json:"kind"` // formal or empirical
-	Execution Execution `json:"execution"`
-	Log       string    `json:"log"`
-	LogSHA256 string    `json:"log_sha256"`
+	Check        string    `json:"check"`
+	Kind         string    `json:"kind"` // formal or empirical
+	Execution    Execution `json:"execution"`
+	Log          string    `json:"log"`
+	LogSHA256    string    `json:"log_sha256"`
+	Dependencies []string  `json:"dependencies,omitempty"`
 }
 type MutationResult struct {
 	ID          string    `json:"id"`
@@ -67,6 +68,10 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 		return receipt, "", err
 	}
 	if err := CheckApproval(root, p); err != nil {
+		return receipt, "", err
+	}
+	graph, err := resolvePackages(root, p)
+	if err != nil {
 		return receipt, "", err
 	}
 	if err := ReadJSON(filepath.Join(root, ApprovalPath), &receipt.Approval); err != nil {
@@ -119,7 +124,7 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 		}
 		return name, hashBytes([]byte(e.Output)), nil
 	}
-	for _, c := range p.Checks {
+	for _, c := range graph.Order {
 		checks[c.ID] = c
 		progress("Checking " + c.ID + " (" + c.Kind + ")")
 		if err = os.RemoveAll(scratch); err != nil {
@@ -131,7 +136,16 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 		if err = source.Materialize(scratch); err != nil {
 			return receipt, "", err
 		}
-		e := runner.Run(ctx, scratch, c)
+		var blocked []string
+		for _, dep := range graph.Dependencies[c.ID] {
+			if executions[dep].Status != "passed" {
+				blocked = append(blocked, dep)
+			}
+		}
+		e := Execution{Status: "blocked", ExitCode: -1, Detail: "unproven dependencies: " + strings.Join(blocked, ", ")}
+		if len(blocked) == 0 {
+			e = runner.Run(ctx, scratch, c)
+		}
 		after, captureErr := Capture(scratch)
 		if captureErr != nil || after.Hash != source.Hash {
 			e.Status = "failed"
@@ -146,7 +160,7 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 		if c.Kind == "gobra" {
 			kind = "formal"
 		}
-		receipt.Evidence = append(receipt.Evidence, Evidence{c.ID, kind, e, log, hash})
+		receipt.Evidence = append(receipt.Evidence, Evidence{Check: c.ID, Kind: kind, Execution: e, Log: log, LogSHA256: hash, Dependencies: graph.Dependencies[c.ID]})
 		if e.Status != "passed" {
 			receipt.Gaps = append(receipt.Gaps, c.ID+": "+e.Status+" "+e.Detail)
 		}
@@ -197,9 +211,26 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 		}
 		receipt.Mutations = append(receipt.Mutations, mr)
 	}
+	ready := map[string]bool{}
+	for _, c := range graph.Order {
+		ready[c.ID] = executions[c.ID].Status == "passed"
+		for _, m := range p.Mutations {
+			if m.Check == c.ID && !killed[m.ID] {
+				ready[c.ID] = false
+			}
+		}
+		for _, dep := range graph.Dependencies[c.ID] {
+			if !ready[dep] {
+				if ready[c.ID] {
+					receipt.Gaps = append(receipt.Gaps, c.ID+": dependency assurance incomplete: "+dep)
+				}
+				ready[c.ID] = false
+			}
+		}
+	}
 	for _, r := range p.Requirements {
 		v := Verdict{r.ID, r.Kind, "unproven", r.Check}
-		if executions[r.Check].Status == "passed" {
+		if ready[r.Check] {
 			if r.Kind == "empirical" {
 				v.Status = "evidenced"
 			} else {
@@ -263,9 +294,9 @@ func Markdown(r Receipt) string {
 		fmt.Fprintf(&b, "| %s | %s | %s |\n", v.ID, v.Kind, v.Status)
 	}
 	fmt.Fprint(&b, "\n## Executed checks\n\n")
-	fmt.Fprintln(&b, "| Check | Kind | Status | Duration | Log |\n| --- | --- | --- | --- | --- |")
+	fmt.Fprintln(&b, "| Check | Kind | Status | Duration | Dependencies | Log |\n| --- | --- | --- | --- | --- | --- |")
 	for _, e := range r.Evidence {
-		fmt.Fprintf(&b, "| %s | %s | %s | %d ms | [%s](%s) |\n", e.Check, e.Kind, e.Execution.Status, e.Execution.DurationMS, e.Log, e.Log)
+		fmt.Fprintf(&b, "| %s | %s | %s | %d ms | %s | [%s](%s) |\n", e.Check, e.Kind, e.Execution.Status, e.Execution.DurationMS, strings.Join(e.Dependencies, ", "), e.Log, e.Log)
 	}
 	fmt.Fprint(&b, "\n## Trusted boundary\n\n")
 	for _, t := range r.Trust {
@@ -344,9 +375,23 @@ func Status(root string, p Plan) (Receipt, string, error) {
 		if len(receipt.Gaps) != 0 {
 			return receipt, dir, fmt.Errorf("receipt success contradicts its gaps")
 		}
-		for i, e := range receipt.Evidence {
-			if e.Check != p.Checks[i].ID || e.Execution.Status != "passed" {
-				return receipt, dir, fmt.Errorf("receipt lacks a passing check")
+		graph, err := resolvePackages(root, p)
+		if err != nil {
+			return receipt, dir, err
+		}
+		evidenceByID := map[string]Evidence{}
+		for _, e := range receipt.Evidence {
+			if _, duplicate := evidenceByID[e.Check]; duplicate {
+				return receipt, dir, fmt.Errorf("receipt repeats a check")
+			}
+			evidenceByID[e.Check] = e
+		}
+		for _, c := range p.Checks {
+			e, ok := evidenceByID[c.ID]
+			deps := append([]string{}, e.Dependencies...)
+			sort.Strings(deps)
+			if !ok || e.Execution.Status != "passed" || strings.Join(deps, ",") != strings.Join(graph.Dependencies[c.ID], ",") {
+				return receipt, dir, fmt.Errorf("receipt lacks a passing check or its verified dependencies")
 			}
 		}
 		for i, m := range receipt.Mutations {

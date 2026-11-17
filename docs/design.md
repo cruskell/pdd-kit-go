@@ -17,6 +17,7 @@ The selected image is Gobra `v26.09`, resolved and pinned to `sha256:5e96431b06c
 - `cmd/pdd` is the executable entry point.
 - `internal/cli` parses typed commands and exposes review/approval operations.
 - `internal/pdd/plan.go` validates the intent-to-contract map, freezes contracts and records approval assertions.
+- `packages.go` resolves complete same-module proof packages, receiver-qualified symbols and the dependency DAG. It rejects ambiguous import resolution and unverified callee packages.
 - `snapshot.go` captures input bytes and creates separate check and mutation workspaces.
 - `runner.go` invokes only Gobra and named Go tests, distinguishes operational failures and validates actual results.
 - `prove.go` joins the evidence, rejects gaps and staleness, and writes receipts.
@@ -29,7 +30,7 @@ The CLI is an orchestration tool, not another theorem prover. Its approval recor
 
 The plan and annotated files are reviewed inputs. Gobra's language semantics and compiler pipeline, Viper, Z3, the Go compiler/runtime, test assertions and host process execution are part of the trusted environment. External app behavior is represented by accepted boundary assumptions with explicit empirical checks.
 
-Plan validation is strict but is not a proof of intention, completeness, satisfiability or termination. The adapter rejects some known proof bypass constructs, but is not a complete security audit of the verification language. It currently restricts proof files to import-free Go to avoid silently introducing library stubs and additional trusted contracts.
+Plan validation is strict but is not a proof of intention, completeness, satisfiability or termination. The adapter rejects some known proof bypass constructs, but is not a complete security audit of the verification language. Local imports require complete checks for every transitive callee package, with no shadowing `.gobra` headers, replacements, nested modules or external-library stubs. Dependencies are checked in topological order, and both baseline failures and incomplete mutation assurance propagate to caller verdicts. Pure function bodies are approval-bound because they can define the meaning of contracts. External-library trust adapters remain outside the current implementation.
 
 Go tests and local Java invocations have host permissions. Docker restricts its verifier's mount/network; this is not a full adversarial sandbox for the entire tool. Source hashes do not cover environment variables, network services, dependency caches, or excluded output folders. Receipts record tool identities and commits where available but are not signed or remotely authenticated. Do not treat them as tamper-proof attestations.
 

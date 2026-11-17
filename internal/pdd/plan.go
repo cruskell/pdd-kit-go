@@ -109,7 +109,7 @@ func Local(root, path string) (string, error) {
 		return "", fmt.Errorf("path escapes repository or names its root: %q", path)
 	}
 	first := strings.Split(filepath.ToSlash(clean), "/")[0]
-	if first == ".git" || first == ".pdd" {
+	if first == ".git" || first == ".pdd" || first == "bin" || first == "dist" {
 		return "", fmt.Errorf("reserved path: %q", path)
 	}
 	abs := filepath.Join(root, clean)
@@ -223,6 +223,10 @@ func (p Plan) Validate(root string) error {
 			return fmt.Errorf("%s: unsupported check kind %q", c.ID, c.Kind)
 		}
 	}
+	graph, err := resolvePackages(root, p)
+	if err != nil {
+		return err
+	}
 	reqs := map[string]Requirement{}
 	used := map[string]bool{}
 	clauses := map[string]bool{}
@@ -277,7 +281,10 @@ func (p Plan) Validate(root string) error {
 	}
 	// Every postcondition in the proof files must be visible in the intent map.
 	for file := range formalFiles {
-		b, _ := readSource(root, file)
+		b, err := readSource(root, file)
+		if err != nil {
+			return err
+		}
 		f, err := parser.ParseFile(token.NewFileSet(), file, b, parser.ParseComments)
 		if err != nil {
 			return err
@@ -287,9 +294,13 @@ func (p Plan) Validate(root string) error {
 				for _, comment := range fn.Doc.List {
 					a := annotation(comment.Text)
 					if strings.HasPrefix(a, "ensures ") {
-						key := file + "\x00" + fn.Name.Name + "\x00" + strings.TrimPrefix(a, "ensures ")
+						name, err := symbolName(fn)
+						if err != nil {
+							return err
+						}
+						key := file + "\x00" + name + "\x00" + strings.TrimPrefix(a, "ensures ")
 						if !clauses[key] {
-							return fmt.Errorf("%s.%s: unmapped ensures clause", file, fn.Name.Name)
+							return fmt.Errorf("%s.%s: unmapped ensures clause", file, name)
 						}
 					}
 				}
@@ -304,6 +315,11 @@ func (p Plan) Validate(root string) error {
 			return fmt.Errorf("%s: trust assumption requires empirical check", t.ID)
 		}
 		used[t.Check] = true
+	}
+	for _, deps := range graph.Dependencies {
+		for _, dep := range deps {
+			used[dep] = true
+		}
 	}
 	for id := range checks {
 		if !used[id] {
@@ -356,11 +372,14 @@ func function(file string, b []byte, name string) (*ast.FuncDecl, error) {
 		return nil, err
 	}
 	for _, d := range f.Decls {
-		if fn, ok := d.(*ast.FuncDecl); ok && fn.Name.Name == name {
-			if fn.Recv != nil {
-				return nil, fmt.Errorf("method contracts are not supported yet")
+		if fn, ok := d.(*ast.FuncDecl); ok {
+			symbol, err := symbolName(fn)
+			if err != nil {
+				return nil, err
 			}
-			return fn, nil
+			if symbol == name {
+				return fn, nil
+			}
 		}
 	}
 	return nil, fmt.Errorf("%s: function %s not found", file, name)
@@ -374,9 +393,7 @@ func contracts(file string, b []byte) ([]string, error) {
 		return nil, err
 	}
 	var result []string
-	if len(f.Imports) != 0 {
-		return nil, fmt.Errorf("%s: this adapter currently proves import-free Go files; keep external dependencies behind input values and list them in trusted_boundary", file)
-	}
+
 	skeleton := append([]byte{}, b...)
 	// Freeze signatures, types and constants as well as annotation order. Bodies
 	// remain editable; all proof comments, including body invariants, are frozen.
@@ -415,13 +432,26 @@ func contracts(file string, b []byte) ([]string, error) {
 			}
 		}
 	}
+	attachedPure := map[token.Pos]bool{}
 	for _, d := range f.Decls {
-		if fn, ok := d.(*ast.FuncDecl); ok && fn.Body == nil {
-			return nil, fmt.Errorf("%s: bodyless functions are not supported", file)
+		if fn, ok := d.(*ast.FuncDecl); ok {
+			if fn.Body == nil {
+				return nil, fmt.Errorf("%s: bodyless functions are not supported", file)
+			}
+			if fn.Doc != nil {
+				for _, comment := range fn.Doc.List {
+					attachedPure[comment.Pos()] = true
+				}
+			}
 		}
 	}
-	if len(result) == 0 {
-		return nil, fmt.Errorf("%s: no Gobra annotations found", file)
+	for _, group := range f.Comments {
+		for _, comment := range group.List {
+			a := annotation(comment.Text)
+			if (a == "pure" || strings.HasPrefix(a, "pure ")) && !attachedPure[comment.Pos()] {
+				return nil, fmt.Errorf("%s: pure annotations must attach to a function's doc comment", file)
+			}
+		}
 	}
 	result = append(result, "declarations:"+declarations.String())
 	return result, nil
@@ -462,8 +492,16 @@ func Digest(root string, p Plan) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	graph, err := resolvePackages(root, p)
+	if err != nil {
+		return "", err
+	}
 	h := sha256.New()
 	h.Write(b)
+	if graph.Module != "" {
+		encoded, _ := json.Marshal(struct{ Module string }{graph.Module})
+		h.Write(encoded)
+	}
 	files := map[string]bool{}
 	for _, c := range p.Checks {
 		if c.Kind == "gobra" {
@@ -491,6 +529,11 @@ func Digest(root string, p Plan) (string, error) {
 			Annotations []string
 		}{file, annotations})
 		h.Write(encoded)
+		definitions, err := specificationDefinitions(file, b)
+		if err != nil {
+			return "", err
+		}
+		h.Write(definitions)
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
@@ -566,4 +609,43 @@ func AtomicWrite(path string, b []byte) error {
 		return err
 	}
 	return os.Rename(f.Name(), path)
+}
+
+// Pure bodies define terms that can appear in contracts, including contracts in
+// importing packages. Changing a definition must require a new review even when
+// the text of the calling ensures clause stays identical.
+func specificationDefinitions(file string, b []byte) ([]byte, error) {
+	f, err := parser.ParseFile(token.NewFileSet(), file, b, parser.ParseComments)
+	if err != nil {
+		return nil, err
+	}
+	type definition struct {
+		Name string
+		Body string
+	}
+	definitions := []definition{}
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Doc == nil || fn.Body == nil {
+			continue
+		}
+		pure := false
+		for _, comment := range fn.Doc.List {
+			a := annotation(comment.Text)
+			if a == "pure" || strings.HasPrefix(a, "pure ") {
+				pure = true
+			}
+		}
+		if pure {
+			name, err := symbolName(fn)
+			if err != nil {
+				return nil, err
+			}
+			definitions = append(definitions, definition{name, string(b[int(fn.Body.Pos())-1 : int(fn.Body.End())-1])})
+		}
+	}
+	if len(definitions) == 0 {
+		return nil, nil
+	}
+	return json.Marshal(definitions)
 }

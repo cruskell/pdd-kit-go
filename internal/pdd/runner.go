@@ -6,10 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -53,8 +57,11 @@ func (r ToolRunner) Run(ctx context.Context, root string, c Check) Execution {
 		}
 		command = []string{goExe, "test", "-json", "-count=1", "-run", "^(" + strings.Join(patterns, "|") + ")$", c.Package}
 	} else if r.GobraJar != "" {
-		command = []string{"java", "-Xss128m", "-jar", r.GobraJar, "--overflow", "-i"}
-		command = append(command, c.Files...)
+		args, err := gobraArguments(root, c, root)
+		if err != nil {
+			return Execution{Status: "failed", ExitCode: -1, Detail: err.Error()}
+		}
+		command = append([]string{"java", "-Xss128m", "-jar", r.GobraJar}, args...)
 	} else {
 		// The image's entrypoint runs /gobra/gobra.jar. The checkout is read-only.
 		containerName := fmt.Sprintf("pdd-%d-%d", os.Getpid(), time.Now().UnixNano())
@@ -63,10 +70,11 @@ func (r ToolRunner) Run(ctx context.Context, root string, c Check) Execution {
 			defer cancel()
 			_ = exec.CommandContext(cleanup, "docker", "rm", "-f", containerName).Run()
 		}()
-		command = []string{"docker", "run", "--rm", "--name", containerName, "--network=none", "--mount", "type=bind,src=" + root + ",dst=/workspace,readonly", GobraImage, "--overflow", "-i"}
-		for _, f := range c.Files {
-			command = append(command, "/workspace/"+f)
+		args, err := gobraArguments(root, c, "/workspace")
+		if err != nil {
+			return Execution{Status: "failed", ExitCode: -1, Detail: err.Error()}
 		}
+		command = append([]string{"docker", "run", "--rm", "--name", containerName, "--network=none", "--mount", "type=bind,src=" + root + ",dst=/workspace,readonly", GobraImage}, args...)
 	}
 	e := execute(ctx, root, command, r.Timeout)
 	if e.Status != "passed" {
@@ -114,7 +122,7 @@ func execute(ctx context.Context, root string, command []string, timeout time.Du
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.Dir = root
 	cmd.WaitDelay = 2 * time.Second
-	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
+	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=", "GOOS="+runtime.GOOS, "GOARCH="+runtime.GOARCH)
 	var output, diagnostics boundedOutput
 	cmd.Stdout = &output
 	cmd.Stderr = &diagnostics
@@ -192,7 +200,7 @@ func ToolInfo(ctx context.Context, goExe, jar string) map[string]string {
 	if goExe == "" {
 		goExe = "go"
 	}
-	result := map[string]string{"gobra_image": GobraImage, "integer_overflow_checks": "enabled"}
+	result := map[string]string{"gobra_image": GobraImage, "integer_overflow_checks": "enabled", "injectivity_checks": "enabled"}
 	for name, cmd := range map[string][]string{"go": {goExe, "version"}, "java": {"java", "-version"}, "docker": {"docker", "--version"}} {
 		c, cancel := context.WithTimeout(ctx, 5*time.Second)
 		b, err := exec.CommandContext(c, cmd[0], cmd[1:]...).CombinedOutput()
@@ -213,5 +221,35 @@ func ToolInfo(ctx context.Context, goExe, jar string) map[string]string {
 		result["gobra_image"] = "local jar"
 	}
 	result["word_bits"] = strconv.Itoa(strconv.IntSize)
+	result["go_target"] = runtime.GOOS + "/" + runtime.GOARCH
 	return result
+}
+
+// sourceRoot is the host checkout for Java and its read-only mount for Docker.
+func gobraArguments(root string, c Check, sourceRoot string) ([]string, error) {
+	args := []string{"--overflow", "--noassumeInjectivityOnInhale"}
+	imports := false
+	for _, file := range c.Files {
+		b, err := readSource(root, file)
+		if err != nil {
+			return nil, err
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), file, b, parser.ImportsOnly)
+		if err != nil {
+			return nil, err
+		}
+		imports = imports || len(f.Imports) > 0
+	}
+	if imports {
+		module, err := mainModule(root)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, "--module", module, "-I", sourceRoot)
+	}
+	args = append(args, "-i")
+	for _, file := range c.Files {
+		args = append(args, filepath.ToSlash(filepath.Join(sourceRoot, filepath.FromSlash(file))))
+	}
+	return args, nil
 }

@@ -1,0 +1,104 @@
+{
+  "schema": 1,
+  "name": "Verified package authorization",
+  "intent": "An importing Go handler must accept exactly when the policy is enabled, the caller's age reaches its minimum, and the account is not locked. Verify both the handler and the production policy method it calls.",
+  "non_goals": [
+    "Truth of input ages and account states",
+    "HTTP routing, persistence, external libraries, termination and timing guarantees"
+  ],
+  "requirements": [
+    {
+      "id": "authorization-handler",
+      "text": "The importing handler accepts exactly requests permitted by the policy.",
+      "kind": "formal",
+      "check": "handler-proof",
+      "file": "examples/authorization/handler/handler.go",
+      "function": "Authorize",
+      "ensures": "result == (enabled && age >= minimum && !locked)"
+    },
+    {
+      "id": "authorization-policy",
+      "text": "The policy method accepts exactly enabled, old-enough and unlocked requests.",
+      "kind": "formal",
+      "check": "policy-proof",
+      "file": "examples/authorization/policy/policy.go",
+      "function": "Policy.Allows",
+      "ensures": "allowed == (p.Enabled && age >= p.MinimumAge && !locked)"
+    },
+    {
+      "id": "policy-pointer-read",
+      "text": "Reading enablement through an accessible policy pointer returns the stored value and preserves access.",
+      "kind": "formal",
+      "check": "policy-proof",
+      "file": "examples/authorization/policy/pointer.go",
+      "function": "Policy.IsEnabled",
+      "ensures": "enabled == p.Enabled"
+    },
+    {
+      "id": "authorization-boundary",
+      "text": "The real Go call path obeys the specified finite boundary cases.",
+      "kind": "empirical",
+      "check": "authorization-tests"
+    }
+  ],
+  "checks": [
+    {
+      "id": "handler-proof",
+      "kind": "gobra",
+      "files": [
+        "examples/authorization/handler/handler.go"
+      ]
+    },
+    {
+      "id": "policy-proof",
+      "kind": "gobra",
+      "files": [
+        "examples/authorization/policy/types.go",
+        "examples/authorization/policy/policy.go",
+        "examples/authorization/policy/pointer.go"
+      ]
+    },
+    {
+      "id": "authorization-tests",
+      "kind": "go-test",
+      "package": "./examples/authorization/handler",
+      "tests": [
+        "TestAuthorization",
+        "TestPolicyPointer"
+      ]
+    }
+  ],
+  "trusted_boundary": [
+    {
+      "id": "authorization-inputs",
+      "assumption": "The caller provides truthful age, lock-state and policy values. Boundary tests exercise the Go call path; they do not prove identity or persistence systems.",
+      "check": "authorization-tests"
+    }
+  ],
+  "mutations": [
+    {
+      "id": "deny-authorized-request",
+      "requirement": "authorization-handler",
+      "check": "handler-proof",
+      "file": "examples/authorization/handler/handler.go",
+      "find": "return p.Allows(age, locked)",
+      "replace": "return false"
+    },
+    {
+      "id": "ignore-account-lock",
+      "requirement": "authorization-policy",
+      "check": "policy-proof",
+      "file": "examples/authorization/policy/policy.go",
+      "find": "return p.Enabled && age >= p.MinimumAge && !locked",
+      "replace": "return p.Enabled && age >= p.MinimumAge"
+    },
+    {
+      "id": "invert-pointer-read",
+      "requirement": "policy-pointer-read",
+      "check": "policy-proof",
+      "file": "examples/authorization/policy/pointer.go",
+      "find": "return p.Enabled",
+      "replace": "return !p.Enabled"
+    }
+  ]
+}

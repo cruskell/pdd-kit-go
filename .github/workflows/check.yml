@@ -30,7 +30,7 @@ jobs:
       - name: Pull pinned Gobra
         run: docker pull ghcr.io/viperproject/gobra@sha256:5e96431b06c2e6209aa767df9153bb4cf8b2620598598f1d7d3f3a74c09c14f9
       - name: Real verifier integration
-        run: PDD_INTEGRATION=1 go test ./internal/pdd -run TestGobraIntegration -v -count=1
+        run: PDD_INTEGRATION=1 go test ./internal/pdd -run 'TestGobra.*Integration' -v -count=1
       - run: go build -o bin/pdd ./cmd/pdd
       - run: bin/pdd lint
       - name: Record demo-only approval (not production review)

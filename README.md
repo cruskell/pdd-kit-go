@@ -55,7 +55,7 @@ pdd --cwd /path/to/repo approve --reviewer YOUR_NAME --accept-tcb boundary-id
 pdd --cwd /path/to/repo prove
 ```
 
-`init` creates an incomplete, unapproved scaffold; it deliberately fails validation until real requirements and checks are supplied. See the complete [example plan](examples/login/plan.json), [plan format](docs/plan-format.md), and [agent workflow](docs/agent-workflow.md).
+`init` creates an incomplete, unapproved scaffold; it deliberately fails validation until real requirements and checks are supplied. See the complete [login plan](examples/login/plan.json), [multi-package authorization plan](examples/authorization/plan.json), [plan format](docs/plan-format.md), and [agent workflow](docs/agent-workflow.md).
 
 | Command | Behavior |
 | --- | --- |
@@ -69,14 +69,32 @@ pdd --cwd /path/to/repo prove
 
 Exit codes: `0` success, `1` unmet verification or operational failure, `2` CLI usage error. `prove --timeout 2m` limits each check; `--go /path/to/go` selects Go; `--gobra-jar /path/to/gobra.jar` uses Java instead of Docker.
 
+## Multi-package example
+
+The [authorization example](examples/authorization/plan.json) verifies a handler that imports a local policy package. `Policy` is declared in `types.go`, `Policy.Allows` implements its value-receiver contract in `policy.go`, and the handler's own contract proves the composed result. A pointer-receiver method, `Policy.IsEnabled`, also proves its read contract while preserving the caller's access permission. The plan intentionally lists the caller first; the CLI runs the callee check first.
+
+To switch the repository demo, back up its current plan and select the authorization plan, then review its changed assumptions:
+
+```sh
+cp .pdd/plan.json .pdd/login-plan.backup.json
+cp examples/authorization/plan.json .pdd/plan.json
+bin/pdd lint
+bin/pdd plan
+bin/pdd approve --reviewer YOUR_NAME --accept-tcb authorization-inputs
+bin/pdd prove
+bin/pdd status
+```
+
+This selects a different demonstration and invalidates the previous plan's approval. `go test ./examples/authorization/...` exercises the production Go call path without running Gobra.
+
 ## What counts as success
 
-- A formal requirement maps to an exact `ensures` clause on a named production function, with at least one negative mutation.
-- All Gobra checks exit successfully and emit a verification-run success summary. Overflow checks are enabled; the adapter uses Gobra's 64-bit integer semantics.
+- A formal requirement maps to an exact `ensures` clause on a named production function or receiver-qualified method, with at least one negative mutation.
+- All Gobra checks exit successfully and emit a verification-run success summary. Overflow and injectivity checks are enabled; the adapter uses Gobra's 64-bit integer semantics.
 - Every named empirical Go test actually executes and passes. Missing, skipped, cached-only or empty test runs are not evidence. Checks use `-count=1`.
 - Every formal mutation is valid Go, changes only the target function body, preserves the approved contract, and is rejected on the target postcondition. A parse failure, timeout or missing tool is inconclusive and fails the run.
 - Every trust assumption has an empirical check and was explicitly accepted. Tests support assumptions on exercised cases; they do not prove them.
-- Source, plan and approval remain current. A changed file makes an old receipt stale. A changed plan, function signature or proof annotation requires review again.
+- Source, plan and approval remain current. A changed file makes an old receipt stale. A changed plan, function signature, proof annotation, imported declaration or pure specification helper requires review again.
 
 There is no automatic fallback from failed formal verification to a green test result. Receipts label formal proof and empirical evidence separately.
 
@@ -90,7 +108,11 @@ Approvals and receipts are **local, unsigned attestations**, not authentication,
 
 The end-to-end workflow is implemented. Natural-language intent is reviewed and mapped by a developer or coding agent; the CLI does not contain an LLM or infer contracts automatically. It does not integrate with Chopin, open pull requests, or implement the reference prototype's multiplayer UI.
 
-The first Gobra adapter accepts **import-free production `.go` files**, named top-level functions, single-line `// @` annotations and explicit postconditions. It rejects `trusted`, `assume`, `inhale`, axioms, bodyless functions, block-style proof comments and method requirement mappings. Imported libraries, methods and more complex Go integrations need a future boundary-aware adapter; Gobra itself supports a much wider language subset.
+The Gobra adapter accepts production `.go` packages, top-level functions and named-receiver methods (for example `Policy.Allows`), single-line `// @` annotations and explicit postconditions. Type declarations can live in separate files. Each proof check lists **all production Go files** in one package.
+
+Imports inside the root Go module are supported when every imported package has its own complete Gobra check. The CLI resolves dependencies, verifies callees before callers, records those dependencies in receipts and propagates incomplete dependency verification to caller verdicts. Importing a contract alone never counts as verifying its implementation.
+
+The adapter rejects external/standard-library proof imports, `go.mod` replacements, nested modules, explicitly build-tagged or host-excluded proof files, dot/side-effect imports and `.gobra` headers that could shadow production Go. It also rejects `trusted`, `assume`, `inhale`, axioms, bodyless functions and block-style proof comments. Keep external dependencies behind explicit input assumptions; external-library adapters and generic receivers remain future work.
 
 A proof establishes stated properties under the verifier's semantics and assumptions. It does not show that the intent is complete, a precondition is satisfiable, or every behavior terminates. Negative mutations detect specific weak contracts; they are not a complete vacuity or specification-completeness analysis. The proof applies to the files given to Gobra, not automatically to every caller or the whole application.
 
@@ -102,9 +124,9 @@ Snapshots include regular tracked and untracked files up to 16 MiB each, excludi
 go test ./...
 go test -race ./...
 go vet ./...
-PDD_INTEGRATION=1 go test ./internal/pdd -run TestGobraIntegration -v
+PDD_INTEGRATION=1 go test ./internal/pdd -run 'TestGobra.*Integration' -v -count=1
 ```
 
-The integration test invokes the real pinned Gobra image, compiles/runs Go boundary tests and checks rejection of a deliberately wrong production function. GitHub Actions runs unit/race tests and that integration test, then generates and uploads the demo receipt. CI approval is explicitly named `ci-demo`; it is a reproducibility exercise, not a human approval of a production specification.
+The integration tests invoke the real pinned Gobra image, compile/run Go boundary tests, verify an importing handler and a separate policy package with a value-receiver method, and reject deliberately wrong production implementations. GitHub Actions runs unit/race tests and that integration test, then generates and uploads the demo receipt. CI approval is explicitly named `ci-demo`; it is a reproducibility exercise, not a human approval of a production specification.
 
 [Design and source references](docs/design.md) · [MIT license](LICENSE)

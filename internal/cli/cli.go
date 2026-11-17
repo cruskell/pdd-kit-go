@@ -164,6 +164,22 @@ func Run(args []string, out, errOut io.Writer, version string) int {
 				fmt.Fprintf(out, "  %s :: %s\n  ensures %s\n", r.File, r.Function, r.Ensures)
 			}
 		}
+		order, deps, err := plan.VerificationOrder(cwd)
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Fprintln(out, "\nChecks in verification order:")
+		for _, check := range order {
+			fmt.Fprintf(out, "  %s (%s)\n", check.ID, check.Kind)
+			if check.Kind == "gobra" {
+				fmt.Fprintln(out, "    files:", strings.Join(check.Files, ", "))
+			} else {
+				fmt.Fprintf(out, "    package: %s; tests: %s\n", check.Package, strings.Join(check.Tests, ", "))
+			}
+			if len(deps[check.ID]) > 0 {
+				fmt.Fprintln(out, "    requires verified:", strings.Join(deps[check.ID], ", "))
+			}
+		}
 		fmt.Fprintln(out, "\nTrusted boundary (requires explicit acceptance):")
 		for _, t := range plan.Trust {
 			fmt.Fprintf(out, "  %s: %s\n  empirical check: %s\n", t.ID, t.Assumption, t.Check)

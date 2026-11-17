@@ -12,4 +12,4 @@ check:
 	$(GO) vet ./...
 
 integration:
-	PDD_INTEGRATION=1 $(GO) test ./internal/pdd -run TestGobraIntegration -v -count=1
+	PDD_INTEGRATION=1 $(GO) test ./internal/pdd -run 'TestGobra.*Integration' -v -count=1
