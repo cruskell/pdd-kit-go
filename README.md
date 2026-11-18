@@ -14,7 +14,7 @@ AI agents can write code quickly. Human review can become the bottleneck when so
 
 Start by describing the rule in plain language. An agent can draft a Go contract, and a human reviewer approves the contract and its assumptions. After implementation, `pdd` runs Gobra to verify that the Go function satisfies the contract for every input it covers. Reviewers can focus on whether the rule matches the intent, whether its assumptions hold, and whether tests cover behavior outside the proof.
 
-In the wallet demo, a fixed balance of 100 still gives **16 cases** to check by hand. Combine two authentication states, two lock states, and four withdrawal amounts (0, 1, 100, and 101). Gobra takes over checking the withdrawal decision for those cases. Go and browser tests exercise the HTTP boundary and the withdrawal flow. [See the review comparison](https://proofsteer-demo.cruskell.chatgpt.site/en/#review-cost)
+Consider a withdrawal rule with a balance of 100. Two authentication states, two lock states, and four withdrawal amounts (0, 1, 100, and 101) give **16 cases**. Gobra can take over checking the decision against the contract for those cases. Go and browser tests exercise the HTTP boundary and the withdrawal flow.
 
 ## What a proof catches
 
