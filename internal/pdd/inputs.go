@@ -71,6 +71,16 @@ func validateInputs(root string, p Plan) error {
 	if err != nil {
 		return err
 	}
+	for _, check := range p.Checks {
+		if check.Kind != "playwright" {
+			continue
+		}
+		for _, excluded := range policy.Exclude {
+			if filepath.Base(excluded) != "node_modules" || containsPath(excluded, check.Config) {
+				return fmt.Errorf("playwright inputs can exclude only provisioned node_modules outside the test configuration")
+			}
+		}
+	}
 	protected, err := protectedInputs(root, p)
 	if err != nil {
 		return err

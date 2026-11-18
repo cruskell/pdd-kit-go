@@ -3,9 +3,11 @@ package pdd
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"net/url"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -31,6 +33,7 @@ func WriteDashboard(ctx context.Context, root, name, policy, destination string)
 		Workflow *WorkflowView
 		JSON     string
 		Review   *ReviewReport
+		Evidence *dashboardEvidence
 	}{Draft: view, Workflow: workflow}
 	if view.ValidationError == "" {
 		r, e := ReportReview(root, view.Plan)
@@ -38,6 +41,9 @@ func WriteDashboard(ctx context.Context, root, name, policy, destination string)
 			return e
 		}
 		data.Review = &r
+	}
+	if workflow != nil && workflow.receipt != nil {
+		data.Evidence = evidenceForDashboard(view.Plan, *workflow.receipt, workflow.receiptDir, destination)
 	}
 	raw, err := json.MarshalIndent(view.Plan, "", "  ")
 	if err != nil {
@@ -55,15 +61,73 @@ func WriteDashboard(ctx context.Context, root, name, policy, destination string)
 	return AtomicWrite(destination, b.Bytes())
 }
 
-const dashboardTemplate = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>PDD Go review</title><style>body{font:16px system-ui;max-width:1100px;margin:40px auto;padding:0 20px;color:#172b42}article,section{padding:16px;border:1px solid #ccd6e0;border-radius:8px;margin:16px 0}h1,h2{color:#163c6a}table{border-collapse:collapse;width:100%}td,th{padding:10px;border:1px solid #ccd6e0;text-align:left}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f1f5f9;padding:14px}small{overflow-wrap:anywhere} .warning{color:#9a3010}</style><h1>{{.Draft.Plan.Name}}</h1><p>{{.Draft.Plan.Intent}}</p><small>Plan {{.Draft.PlanID}} · Draft {{.Draft.Digest}}</small><p>Human decisions → independent intent and guarantee reviews → human approval → implementation → machine verification → advisory gap review → PR</p>{{if .Draft.ValidationError}}<p class="warning">Before approval: {{.Draft.ValidationError}}</p>{{end}}
-<h2>Decision cards</h2>{{range .Draft.Plan.Decisions}}<article><h3>{{.Question}}</h3><p>{{.Context}}</p><small>{{.File}} {{.Function}} · {{.ID}}</small>{{range .Options}}<p><b>{{.ID}}: {{.Label}}</b>{{if .Recommended}} (recommended){{end}} — {{.Consequence}}</p>{{end}}<p>Selected: {{.Selected}} · Reason: {{.Rationale}}</p></article>{{else}}<p>No decision cards recorded.</p>{{end}}
-<h2>Original intent → specification landscape</h2>{{range .Draft.Plan.IntentMap}}<section><blockquote>{{.UserWords}}</blockquote><p>Requirements: {{range .Requirements}}{{.}} {{end}}</p><p>Decisions: {{range .Decisions}}{{.}} {{end}}</p></section>{{end}}<table><tr><th>Requirement</th><th>Guarantee</th><th>Evidence</th></tr>{{range .Draft.Plan.Requirements}}<tr><td>{{.ID}}</td><td>{{.Text}}<pre>{{.Ensures}}</pre></td><td>{{.Kind}} · {{.Check}}<br>{{.File}} {{.Function}}</td></tr>{{end}}</table>
-{{with .Review}}<h2>Frozen approval contract</h2><p>Approval state: {{.Approval.State}} — {{.Approval.Message}}</p><small>Plan digest for explicit approval: {{.Digest}}</small>{{range .Bundle.Sources}}<section><h3>{{.File}}</h3>{{range .Annotations}}<pre>{{.}}</pre>{{end}}{{if .Definitions}}<details><summary>Pure specification definitions</summary><pre>{{printf "%s" .Definitions}}</pre></details>{{end}}{{range .Bindings}}<p><small>{{.Owner}}</small> · {{.Annotation}}</p>{{end}}</section>{{end}}{{end}}
-<h2>Trusted boundary and assumed clauses</h2>{{range .Draft.Plan.Trust}}<article><h3>{{.ID}}</h3><p>{{.Assumption}}</p><p>Check: {{.Check}} · Affects: {{range .Affects}}{{.}} {{end}}</p>{{range .Clauses}}<p><b>{{.ID}}</b>: {{.Text}} · If false: {{.Impact}} · Test {{.Test}}</p>{{end}}</article>{{end}}
-<h2>Given / When / Then tests</h2>{{range .Draft.Plan.Scenarios}}<section><h3>{{.ID}} · {{.Purpose}}</h3><p>Given {{.Given}}<br>When {{.When}}<br>Then {{.Then}}</p><small>{{.Check}} / {{.Test}}</small></section>{{end}}
-<h2>Independent advisory reviews</h2>{{range .Draft.Plan.PlanningReviews}}<section><b>{{.Role}}: {{.Result.Status}}</b><p>{{.Result.Summary}}</p>{{range .Result.Findings}}<p>{{.Severity}}: {{.Text}}</p>{{end}}<small>Invocation {{.Invocation}} · {{.Driver}}</small></section>{{end}}<p>Model opinions are advisory; they do not establish formal correctness or authenticate a human reviewer.</p>
-{{with .Workflow}}<h2>Verification task graph</h2><table><tr><th>Task</th><th>Depends on</th><th>Evidence status</th></tr>{{range .Tasks}}<tr><td>{{.ID}} ({{.Kind}})</td><td>{{range .DependsOn}}{{.}} {{end}}</td><td>{{.Status}}</td></tr>{{end}}</table><p>Machine receipt current: {{.MachineCurrent}} · successful: {{.MachineSuccess}} · ready for PR: {{.ReadyForPR}}</p>{{range .Gaps}}<p class="warning">{{.}}</p>{{end}}{{with .GapReview}}<p>Advisory gap review: {{.Result.Status}} — {{.Result.Summary}}</p>{{end}}<p>Potential redundant formal regression scenarios (manual review only): {{range .PruneCandidates}}{{.}} {{end}}</p>{{end}}
-<h2>Limits</h2>{{range .Draft.Plan.NonGoals}}<p>{{.}}</p>{{end}}<details><summary>Complete plan</summary><pre>{{.JSON}}</pre></details></html>`
+//go:embed dashboard.html
+var dashboardTemplate string
+
+type dashboardLink struct{ Label, URL string }
+
+type dashboardCheck struct {
+	Evidence
+	Backend string
+	LogURL  string
+	Files   []dashboardLink
+	Tests   []string
+}
+
+type dashboardMutation struct {
+	MutationResult
+	LogURL string
+}
+
+type dashboardEvidence struct {
+	Receipt
+	Verdicts         map[string]string
+	Checks           []dashboardCheck
+	NegativeExamples []dashboardMutation
+	ReceiptURL       string
+}
+
+func evidenceForDashboard(plan Plan, r Receipt, dir, destination string) *dashboardEvidence {
+	link := func(name string) string {
+		if name == "" || filepath.Base(name) != name {
+			return ""
+		}
+		rel, err := filepath.Rel(filepath.Dir(destination), filepath.Join(dir, name))
+		if err != nil {
+			return ""
+		}
+		return (&url.URL{Path: filepath.ToSlash(rel)}).String()
+	}
+	result := &dashboardEvidence{Receipt: r, ReceiptURL: link("receipt.json"), Verdicts: map[string]string{}}
+	for _, v := range r.Requirements {
+		result.Verdicts[v.ID] = v.Status
+	}
+	checks := map[string]Check{}
+	for _, check := range plan.Checks {
+		checks[check.ID] = check
+	}
+	for _, e := range r.Evidence {
+		c := checks[e.Check]
+		item := dashboardCheck{Evidence: e, Backend: c.Kind, LogURL: link(e.Log), Tests: c.Tests}
+		for _, a := range e.Artifacts {
+			label := a.File
+			switch filepath.Ext(a.File) {
+			case ".json":
+				label = "Playwright JSON"
+			case ".png":
+				label = "Failure screenshot"
+			case ".zip":
+				label = "Playwright trace"
+			}
+			item.Files = append(item.Files, dashboardLink{Label: label, URL: link(a.File)})
+		}
+		result.Checks = append(result.Checks, item)
+	}
+	for _, m := range r.Mutations {
+		result.NegativeExamples = append(result.NegativeExamples, dashboardMutation{MutationResult: m, LogURL: link(m.Log)})
+	}
+	return result
+}
 
 type PROptions struct {
 	Title, Base, Head string

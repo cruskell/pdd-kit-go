@@ -53,10 +53,12 @@ type Requirement struct {
 }
 type Check struct {
 	ID      string   `json:"id"`
-	Kind    string   `json:"kind"` // gobra or go-test; arbitrary commands are not accepted
+	Kind    string   `json:"kind"` // gobra, go-test or playwright
 	Files   []string `json:"files,omitempty"`
 	Package string   `json:"package,omitempty"`
 	Tests   []string `json:"tests,omitempty"`
+	Config  string   `json:"config,omitempty"`
+	Project string   `json:"project,omitempty"`
 }
 type Trust struct {
 	Affects    []string        `json:"affects,omitempty"`
@@ -183,6 +185,9 @@ func (p Plan) Validate(root string) error {
 			return err
 		}
 		checks[c.ID] = c
+		if c.Kind != "playwright" && (c.Config != "" || c.Project != "") {
+			return fmt.Errorf("%s: config and project require a playwright check", c.ID)
+		}
 		switch c.Kind {
 		case "gobra":
 			if len(c.Files) == 0 || c.Package != "" || len(c.Tests) > 0 {
@@ -243,6 +248,10 @@ func (p Plan) Validate(root string) error {
 				}
 				seen[t] = true
 			}
+		case "playwright":
+			if err := validateBrowserCheck(root, c); err != nil {
+				return fmt.Errorf("%s: %w", c.ID, err)
+			}
 		default:
 			return fmt.Errorf("%s: unsupported check kind %q", c.ID, c.Kind)
 		}
@@ -296,8 +305,8 @@ func (p Plan) Validate(root string) error {
 			}
 			clauses[key] = true
 		} else if r.Kind == "empirical" {
-			if c.Kind != "go-test" || r.File != "" || r.Function != "" || r.Ensures != "" {
-				return fmt.Errorf("%s: empirical requirement must map to go-test", r.ID)
+			if !isEmpirical(c) || r.File != "" || r.Function != "" || r.Ensures != "" {
+				return fmt.Errorf("%s: empirical requirement must map to go-test or playwright", r.ID)
 			}
 		} else {
 			return fmt.Errorf("%s: kind must be formal or empirical", r.ID)
@@ -335,7 +344,7 @@ func (p Plan) Validate(root string) error {
 		if err := add(t.ID); err != nil {
 			return err
 		}
-		if strings.TrimSpace(t.Assumption) == "" || checks[t.Check].Kind != "go-test" {
+		if strings.TrimSpace(t.Assumption) == "" || !isEmpirical(checks[t.Check]) {
 			return fmt.Errorf("%s: trust assumption requires empirical check", t.ID)
 		}
 		used[t.Check] = true

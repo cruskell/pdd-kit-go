@@ -19,6 +19,8 @@ type BuildTask struct {
 	Status       string   `json:"status"`
 }
 type WorkflowView struct {
+	receipt         *Receipt
+	receiptDir      string
 	PlanID          string          `json:"plan_id"`
 	Digest          string          `json:"digest"`
 	Tasks           []BuildTask     `json:"tasks"`
@@ -46,6 +48,7 @@ func WorkflowReport(ctx context.Context, root string, p Plan, policy string) (Wo
 	view.MachineSuccess = statusErr == nil && receipt.Success
 	states := map[string]string{}
 	if statusErr == nil {
+		view.receipt, view.receiptDir = &receipt, dir
 		for _, e := range receipt.Evidence {
 			states[e.Check] = e.Execution.Status
 		}
@@ -159,7 +162,7 @@ func copyArtifactDirectory(source, destination string) error {
 		if entry.IsDir() {
 			continue
 		}
-		data, err := readArtifact(filepath.Join(source, entry.Name()), 8<<20)
+		data, err := readArtifact(filepath.Join(source, entry.Name()), (8<<20)+1024)
 		if err != nil {
 			return err
 		}

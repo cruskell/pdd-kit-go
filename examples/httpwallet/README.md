@@ -10,6 +10,7 @@ curl -i http://127.0.0.1:8080/v1/withdraw \
   -H 'Content-Type: application/json' -d '{"amount":40}'
 ```
 
+Open `http://127.0.0.1:8080/` for the demo form, or use the API request above.
 The response is `200` with `{"balance":60}`. The in-memory balance starts at 100;
 a second request for 100 returns `403`. `demo-locked` is always denied. Restarting
 resets all balances. These public static credentials, single-process memory and
@@ -45,3 +46,13 @@ for HTTP, session lookup and atomic updates. Client disconnects may occur after 
 commit; retries are not idempotent. No durable storage, distributed locking,
 identity verification, TLS or settlement guarantees are claimed. The reviewable
 plan records these limits and the runtime/session trust boundary explicitly.
+
+## Browser verification
+
+The separate `httpwallet-browser` plan proves the same Go policy, runs the HTTP
+and concurrency tests, and opens this form in Chromium. The browser case attempts
+to withdraw 101 from a balance of 100, sees the denial, then withdraws all 100.
+The final response displays a remaining balance of zero.
+
+Follow the [browser setup and example commands](../../docs/browser-checks.md).
+The example plan uses port 38479 and starts a fresh server for the check.

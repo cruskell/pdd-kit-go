@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "name": "HTTP wallet with browser evidence",
+  "intent": "The HTTP withdrawal endpoint must use the verified production decision, allowing a withdrawal exactly for an authenticated, unlocked account with a positive amount within its balance. Exercise request decoding, sessions and atomic state updates empirically. Show a refusal in the browser for an overdraw and leave the wallet unchanged.",
+  "non_goals": [
+    "The static demo tokens are not production authentication; no TLS, identity proof, persistence, payment settlement or distributed consistency is provided.",
+    "Gobra proves the pure decision only; HTTP decoding, the session mapping, synchronization and state updates have empirical evidence, not formal proof.",
+    "Availability, fairness, transport failure recovery and exactly-once request semantics are outside scope."
+  ],
+  "requirements": [
+    {
+      "id": "withdrawal-policy",
+      "text": "Accept exactly authenticated, unlocked withdrawals with positive amount no greater than balance.",
+      "kind": "formal",
+      "check": "withdrawal-proof",
+      "file": "examples/httpwallet/policy/policy.go",
+      "function": "CanWithdraw",
+      "ensures": "allowed == (authenticated && !locked && amount > 0 && amount <= balance)"
+    },
+    {
+      "id": "http-boundary",
+      "text": "HTTP method, path, session and withdrawal boundaries return expected status and balance, without changing funds on rejection.",
+      "kind": "empirical",
+      "check": "http-tests"
+    },
+    {
+      "id": "http-decoding",
+      "text": "Malformed, oversized, ambiguous and unknown request inputs are rejected without changing funds.",
+      "kind": "empirical",
+      "check": "http-tests"
+    },
+    {
+      "id": "atomic-withdrawals",
+      "text": "Concurrent requests through a real local HTTP server spend the initial balance exactly once without overdraft.",
+      "kind": "empirical",
+      "check": "http-tests"
+    },
+    {
+      "id": "overdraft-screen",
+      "text": "A browser shows withdrawal denied for an overdraft and the full starting balance remains available.",
+      "kind": "empirical",
+      "check": "wallet-browser"
+    }
+  ],
+  "checks": [
+    {
+      "id": "withdrawal-proof",
+      "kind": "gobra",
+      "files": [
+        "examples/httpwallet/policy/policy.go"
+      ]
+    },
+    {
+      "id": "http-tests",
+      "kind": "go-test",
+      "package": "./examples/httpwallet/app",
+      "tests": [
+        "TestWithdrawalHTTP",
+        "TestMalformedHTTP",
+        "TestConcurrentHTTPWithdrawals"
+      ]
+    },
+    {
+      "id": "wallet-browser",
+      "kind": "playwright",
+      "config": "examples/httpwallet/browser/playwright.config.cjs",
+      "project": "chromium",
+      "tests": [
+        "wallet.spec.cjs :: rejects an overdraft without debiting the wallet"
+      ]
+    }
+  ],
+  "trusted_boundary": [
+    {
+      "id": "wallet-sessions",
+      "assumption": "The configured session mapping identifies the correct account and lock state; demo tokens are public test credentials. Tests exercise known, unknown, locked and ambiguous tokens but cannot establish a real identity provider's truthfulness.",
+      "check": "http-tests"
+    },
+    {
+      "id": "wallet-runtime",
+      "assumption": "Go integer/JSON/HTTP implementations and mutex semantics are trusted. Race and TCP concurrency tests exercise parsing and an atomic in-memory update; they do not prove the runtime or provide durable financial guarantees.",
+      "check": "http-tests"
+    }
+  ],
+  "mutations": [
+    {
+      "id": "ignore-session-lock",
+      "requirement": "withdrawal-policy",
+      "check": "withdrawal-proof",
+      "file": "examples/httpwallet/policy/policy.go",
+      "find": "return authenticated && !locked && amount > 0 && amount <= balance",
+      "replace": "return authenticated && amount > 0 && amount <= balance"
+    },
+    {
+      "id": "allow-zero-withdrawal",
+      "requirement": "withdrawal-policy",
+      "check": "withdrawal-proof",
+      "file": "examples/httpwallet/policy/policy.go",
+      "find": "return authenticated && !locked && amount > 0 && amount <= balance",
+      "replace": "return authenticated && !locked && amount >= 0 && amount <= balance"
+    },
+    {
+      "id": "allow-overdraft",
+      "requirement": "withdrawal-policy",
+      "check": "withdrawal-proof",
+      "file": "examples/httpwallet/policy/policy.go",
+      "find": "return authenticated && !locked && amount > 0 && amount <= balance",
+      "replace": "return authenticated && !locked && amount > 0"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "browser-overdraft",
+      "check": "wallet-browser",
+      "test": "wallet.spec.cjs :: rejects an overdraft without debiting the wallet",
+      "given": "A demo account starts with a balance of 100",
+      "when": "The user attempts to withdraw 101 then withdraws 100",
+      "then": "The browser shows a denial followed by a successful withdrawal with zero remaining",
+      "requirements": [
+        "overdraft-screen"
+      ],
+      "purpose": "integration"
+    }
+  ]
+}

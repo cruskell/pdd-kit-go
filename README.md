@@ -48,7 +48,7 @@ login-decision: proved (formal)
 login-boundary: evidenced (empirical)
 ```
 
-Open the `receipt.md` path printed by `pdd prove` to see the checks, rejected mutations, trusted assumptions, and proof limits. `pdd status` checks that the latest receipt still matches the current source and approval. For a browser view of the plan and evidence, run `pdd report --out .pdd/results/login.html` and open that file.
+Open the `receipt.md` path printed by `pdd prove` to see the checks, rejected mutations, trusted assumptions, and proof limits. `pdd status` checks that the latest receipt still matches the current source and approval. For the requirements, test results, rejected mutations, and links to logs on one page, run `pdd report --out .pdd/results/login.html` and open the HTML file.
 
 ## Use it in your project
 
@@ -64,14 +64,14 @@ If you already work with a coding agent, `pdd draft` can turn a request into an 
 
 | Example | What to look at |
 | --- | --- |
-| [HTTP wallet](examples/httpwallet/README.md) | A real HTTP handler calls a proved withdrawal rule. Go tests exercise session handling, invalid requests, and concurrent withdrawals. |
+| [HTTP wallet](examples/httpwallet/README.md) | A real HTTP handler calls a proved withdrawal rule. Go tests exercise the HTTP boundary and concurrent withdrawals. The optional browser check submits an overdraft and confirms the balance remains available. |
 | [Multi-package authorization](examples/authorization/plan.json) | A handler calls local policy methods. PDD checks the dependency package before the caller. |
 | [Slice validation](examples/validation/README.md) | A production loop proves a property over every element using permissions, a quantified contract, and loop invariants. |
 
 ## What you can rely on
 
 - **Formal proofs cover stated contracts.** Gobra checks supported Go functions and methods, including supported calls across packages in one module. External and standard-library imports in proof packages remain outside the supported scope. [Supported proof inputs](docs/plan-format.md)
-- **Go tests provide evidence for the cases they run.** The receipt labels them separately from proofs. Each planned negative mutation must fail on the intended postcondition. A missing test, tool failure, or inconclusive mutation fails verification. [Design](docs/design.md)
+- **Go and browser tests provide evidence for the cases they run.** The receipt labels them separately from proofs. Each planned negative mutation must fail on the intended postcondition. A missing test, tool failure, or inconclusive mutation fails verification. [Design](docs/design.md)
 - **Receipts tie the result to the reviewed change.** Machine-readable JSON and Markdown include the plan and source digests, commands, outcomes, trust assumptions, and links or references to saved logs. `status` rejects stale evidence. Use Ed25519 approvals with a trusted policy when CI needs to verify reviewer authority. [JSON protocol](docs/cli-json.md) · [Signed reviews](docs/signed-reviews.md)
 
 `pdd-kit-go` is an independent implementation of ideas from the Proof-Driven Development Kit research prototype. Its Go verifier is Gobra. [Original PDD Kit](https://githubnext.com/projects/pdd-kit/) · [Feature comparison and limits](docs/reference-comparison.md)
