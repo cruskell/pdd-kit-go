@@ -32,6 +32,7 @@ Usage: pdd [--cwd DIR] [--plan NAME] [--json] <command> [options]
   prove      Run approved proofs, Go and Playwright checks, and negative mutations
   status     Check whether this plan's latest receipt is current and successful
   doctor     Check Go and Docker/Java prerequisites
+  demo       Verify the bundled login example in a new directory
   draft      Generate a plan from --request-file; --apply installs an unapproved draft
   decisions  Inspect decision cards, including unresolved drafts
   decide     Answer a card: --id ID --option ID --reason TEXT --expect-draft HASH
@@ -50,6 +51,7 @@ Global: --policy PATH (or PDD_REVIEW_POLICY) enforces authorized, unexpired sign
 Global: --cwd DIR, --plan NAME (default: default), --json, --version, --help
 Named plans: .pdd/plans/NAME.json; state: .pdd/state/NAME/
 The default plan keeps .pdd/plan.json and .pdd/approval.json.
+demo:       --out DIR (default: pdd-demo); accepts the prove tool options
 init:       --from PATH (optional; imports a plan without executing it)
 plan:       --diff
 approve:    --reviewer NAME --accept-tcb ID[,ID...] --expect-digest SHA256
@@ -142,7 +144,10 @@ func Run(args []string, out, errOut io.Writer, version string) (exitCode int) {
 		fs.StringVar(&expected, "expect-digest", "", "Digest of the intent and contracts reviewed")
 	case "plan":
 		fs.BoolVar(&diff, "diff", false, "Show changes since recorded review")
-	case "prove", "doctor":
+	case "prove", "doctor", "demo":
+		if command == "demo" {
+			fs.StringVar(&to, "out", "pdd-demo", "New directory for the bundled login example")
+		}
 		fs.StringVar(&goExe, "go", "go", "Go executable")
 		fs.StringVar(&jar, "gobra-jar", "", "Local Gobra jar instead of Docker")
 		fs.DurationVar(&timeout, "timeout", 2*time.Minute, "Timeout per check")
@@ -209,6 +214,13 @@ func Run(args []string, out, errOut io.Writer, version string) (exitCode int) {
 		return path
 	}
 	global.policy = resolve(global.policy)
+	if command == "demo" {
+		if paths.Name != "default" || global.policy != "" || strings.TrimSpace(to) == "" || timeout <= 0 {
+			return printer.finish(2, nil, "usage", fmt.Errorf("demo needs a new --out directory, positive timeout, default plan and no review policy"), "The bundled example uses its shipped local approval. Use prove for a project with a review policy.")
+		}
+		jar = resolve(jar)
+		return runDemo(ctx, printer, resolve(to), pdd.Options{Version: version, Runner: pdd.ToolRunner{Go: goExe, GobraJar: jar, Timeout: timeout}, Tools: pdd.ToolInfo(ctx, goExe, jar), Progress: func(line string) { fmt.Fprintln(errOut, line) }})
+	}
 	signingKey = resolve(signingKey)
 	if command == "keygen" {
 		if privateKey == "" || publicKey == "" {

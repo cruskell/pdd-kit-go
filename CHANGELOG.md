@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.4.0
+
+- Bundle the reviewed login example in `pdd demo` for first-time users.
+- Show current check verdicts, negative examples and log links in HTML reports.
+- Run named Playwright tests and record first-attempt results, screenshots and traces.
+- Add a Chromium wallet example and a walkthrough for a separate Go module.
+
 ## v0.3.0
 
 - Add request-driven planning, contextual decision cards and original-intent mappings.

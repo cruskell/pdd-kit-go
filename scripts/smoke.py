@@ -32,6 +32,13 @@ def main():
 
         assert cli("--version")["version"] == args.version
         cli("doctor")
+        demo_dir = Path(directory) / "demo"
+        demo = cli("demo", "--out", str(demo_dir))
+        assert demo["directory"] == str(demo_dir)
+        assert "deny-everyone" in Path(demo["report"]).read_text()
+        assert "| login-decision | formal | proved |" in Path(demo["receipt"]).read_text()
+        cli("demo", "--out", str(demo_dir), success=False)
+        print("bundled demo: clean install, proof, report and no-overwrite check passed", flush=True)
         for plan in ("default", "httpwallet"):
             if plan == "httpwallet":
                 cli("--plan", plan, "init", "--from", "examples/httpwallet/plan.json")
