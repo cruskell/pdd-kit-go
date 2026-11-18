@@ -4,7 +4,7 @@ import (
 	"os"
 	"runtime/debug"
 
-	"github.com/cruskell/pdd-kit-go/internal/cli"
+	"github.com/cruskell/proofsteer-go/internal/cli"
 )
 
 // Set by release builds. go install @version obtains the module version below.

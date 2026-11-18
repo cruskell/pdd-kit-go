@@ -2,6 +2,8 @@
 
 ## v0.4.0
 
+- Adopt the ProofSteer name and the `proofsteer-go` Go module path. The CLI is still `pdd`.
+
 - Bundle the reviewed login example in `pdd demo` for first-time users.
 - Show current check verdicts, negative examples and log links in HTML reports.
 - Run named Playwright tests and record first-attempt results, screenshots and traces.

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/cruskell/pdd-kit-go/docs/cli-output.schema.json",
+  "$id": "https://github.com/cruskell/proofsteer-go/docs/cli-output.schema.json",
   "title": "pdd CLI response envelope, version 1",
   "type": "object",
   "additionalProperties": false,

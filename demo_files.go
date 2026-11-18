@@ -1,4 +1,4 @@
-package pddkit
+package proofsteer
 
 import (
 	"embed"

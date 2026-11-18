@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/cruskell/pdd-kit-go/examples/httpwallet/app"
+	"github.com/cruskell/proofsteer-go/examples/httpwallet/app"
 )
 
 func configured() *app.Handler {

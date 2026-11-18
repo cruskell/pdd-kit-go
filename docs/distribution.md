@@ -1,10 +1,10 @@
 # Install and reproduce a release
 
-Versioned binaries and checksums are published on [GitHub Releases](https://github.com/cruskell/pdd-kit-go/releases).
+Versioned binaries and checksums are published on [GitHub Releases](https://github.com/cruskell/proofsteer-go/releases).
 Go users can install the tagged CLI directly:
 
 ```sh
-go install github.com/cruskell/pdd-kit-go/cmd/pdd@v0.4.0
+go install github.com/cruskell/proofsteer-go/cmd/pdd@v0.4.0
 pdd --version
 ```
 
