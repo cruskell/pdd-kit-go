@@ -12,9 +12,15 @@ Start with one decision in an existing Go project. The core workflow works witho
 
 AI agents can write code quickly. Human review can become the bottleneck when someone has to trace each branch of an authorization or payment rule and check it against the intended behavior. Passing tests confirm the cases they exercise.
 
-Start by describing the rule in plain language. An agent can draft a Go contract, and a human reviewer approves the contract and its assumptions. After implementation, `pdd` runs Gobra to verify that the Go function satisfies the contract for every input it covers. Reviewers can focus on whether the rule matches the intent, whether its assumptions hold, and whether tests cover behavior outside the proof.
+Start by describing the rule in plain language. An agent can draft a Go contract, and a human reviewer approves the contract and its assumptions. After implementation, `pdd` runs Gobra to verify that the Go function satisfies the contract for every input it covers.
 
-Consider a withdrawal rule with a balance of 100. Two authentication states, two lock states, and four withdrawal amounts (0, 1, 100, and 101) give **16 cases**. Gobra can take over checking the decision against the contract for those cases. Go and browser tests exercise the HTTP boundary and the withdrawal flow.
+Consider a withdrawal rule with a balance of 100. Two authentication states, two lock states, and four withdrawal amounts (0, 1, 100, and 101) give **16 cases**.
+
+| Review task | Manual code review | Proof-driven review |
+| --- | --- | --- |
+| Is this the intended rule, and are its assumptions sound? | Reviewer checks the specification | Reviewer checks the specification |
+| Does the Go function make the right decision for these 16 inputs? | Reviewer traces the code | Gobra checks the contract |
+| Do HTTP handling and the browser flow behave as expected? | Reviewer checks test coverage and results | Reviewer checks test coverage and results |
 
 ## What a proof catches
 
