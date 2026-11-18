@@ -1,50 +1,16 @@
 # pdd-kit-go
 
-**Proof-Driven Development for Go.** Review intent and contracts, prove production Go with Gobra, test the trusted boundary, and keep a receipt of exactly what ran.
+**Prove the Go decisions you need to get right.**
 
-This is an independent, working prototype inspired by [Microsoft Research and GitHub Next's PDD Kit](https://githubnext.com/projects/pdd-kit/). It is not an official port or affiliated project. The reference prototype uses Rust/Verus; this project uses [Gobra](https://github.com/viperproject/gobra) for Go. It has no Product-Driven Development dependency.
+When a change touches who can sign in, what can be authorized, or when a balance can be debited, examples alone leave cases unchecked. Write the rule as a contract on the production Go function. `pdd` runs Gobra to check it, runs Go tests for the surrounding code, and writes a receipt you can bring to code review.
 
-Versioned binaries, checksums and reproducible build instructions are in
-[distribution](docs/distribution.md). See [CI adoption](docs/ci.md) and
-[troubleshooting/migration](docs/troubleshooting.md).
+Start with one decision in an existing Go project. The core workflow works without an LLM account.
 
-See [authenticated review gates](docs/signed-reviews.md) and
-[production qualification](docs/production-readiness.md) for signed authority,
-native platform checks and repeatable failure/recovery testing.
+[Try the login example](#try-it) · [Use it in your project](#use-it-in-your-project) · [Download pdd](https://github.com/cruskell/pdd-kit-go/releases/tag/v0.3.0)
 
-Install the tagged CLI with `go install github.com/cruskell/pdd-kit-go/cmd/pdd@v0.3.0`,
-or download checksummed binaries from [Releases](https://github.com/cruskell/pdd-kit-go/releases).
+## What a proof catches
 
-## Quick start
-
-The CLI uses only Go's standard library. Build with Go 1.20+ on a 64-bit host. Formal checks additionally require Docker and the pinned Gobra image, or a local Gobra jar with Java and Z3 configured.
-
-```sh
-git clone https://github.com/cruskell/pdd-kit-go.git
-cd pdd-kit-go
-go build -o bin/pdd ./cmd/pdd
-
-docker pull ghcr.io/viperproject/gobra@sha256:5e96431b06c2e6209aa767df9153bb4cf8b2620598598f1d7d3f3a74c09c14f9
-bin/pdd doctor
-bin/pdd plan
-```
-
-The repository's `.pdd/plan.json` is a demo plan for `examples/login/login.go`. Read it, then record **your own** review and acceptance of its input assumptions:
-
-```sh
-bin/pdd approve --reviewer YOUR_NAME --accept-tcb identity-inputs
-bin/pdd prove
-bin/pdd status
-```
-
-A successful demo reports:
-
-```text
-login-decision: proved (formal)
-login-boundary: evidenced (empirical)
-```
-
-The `DecideLogin` function is ordinary, compilable Go, with Gobra annotations in comments:
+Suppose the requirement is **allow a login exactly when the account exists, the password matches, and the account is unlocked**. The specification lives beside the production code in a Go comment that Gobra reads.
 
 ```go
 // @ ensures allowed == (accountExists && passwordMatches && !locked)
@@ -53,99 +19,62 @@ func DecideLogin(accountExists, passwordMatches, locked bool) (allowed bool) {
 }
 ```
 
-It proves the decision for every boolean input, including accepting valid logins. Three isolated mutations remove the password gate, remove the lock gate, and reject everyone. Each must produce a postcondition failure on the declared clause. Database lookups, password hashing and token issuance are outside this example's proof; its boundary test does not establish those systems' correctness.
+An implementation that always returns `false` satisfies a rejection-only rule. It violates this contract because valid logins must succeed. The demo asks Gobra to check the real function and then reject three deliberate changes in scratch copies: ignore a bad password, ignore a locked account, and deny everyone. It also runs a named Go test for the boundary cases. The proof starts with the three booleans; the accuracy of account lookup and password checking remains a caller assumption. [Production function](examples/login/login.go) · [Login plan](examples/login/plan.json)
 
-## Use in another Go repository
+## Try it
+
+Use Go 1.20 or newer and Docker on a 64-bit host. Put the Go install directory on your `PATH`, or use the [checksummed binaries](https://github.com/cruskell/pdd-kit-go/releases/tag/v0.3.0). To use a local Gobra JAR, see [troubleshooting](docs/troubleshooting.md).
 
 ```sh
-pdd --cwd /path/to/repo init
-# Edit .pdd/plan.json and add // @ contracts to production .go files.
-pdd --cwd /path/to/repo lint
-pdd --cwd /path/to/repo plan
-pdd --cwd /path/to/repo approve --reviewer YOUR_NAME --accept-tcb boundary-id
-pdd --cwd /path/to/repo prove
+go install github.com/cruskell/pdd-kit-go/cmd/pdd@v0.3.0
+git clone https://github.com/cruskell/pdd-kit-go.git
+cd pdd-kit-go
+pdd plan
 ```
 
-`init` creates an incomplete, unapproved scaffold; `init --from PATH` imports an existing plan without running checks or recording approval; it deliberately fails validation until real requirements and checks are supplied. See the complete [login plan](examples/login/plan.json), [multi-package authorization plan](examples/authorization/plan.json), [plan format](docs/plan-format.md), and [agent workflow](docs/agent-workflow.md).
+`pdd plan` lets you inspect the rule, checks, proposed mutations and caller assumptions before you run the verifier. The following commands reuse the repository's demonstration approval. For your own rules, record your team's review as shown below.
 
-| Command | Behavior |
+```sh
+docker pull ghcr.io/viperproject/gobra@sha256:5e96431b06c2e6209aa767df9153bb4cf8b2620598598f1d7d3f3a74c09c14f9
+pdd import-approval --from .pdd/reviews/default.json
+pdd prove
+pdd status
+```
+
+Look for these two lines in `pdd prove` output. Each shows what the corresponding check established.
+
+```text
+login-decision: proved (formal)
+login-boundary: evidenced (empirical)
+```
+
+Open the `receipt.md` path printed by `pdd prove` to see the checks, rejected mutations, trusted assumptions, and proof limits. `pdd status` checks that the latest receipt still matches the current source and approval. For a browser view of the plan and evidence, run `pdd report --out .pdd/results/login.html` and open that file.
+
+## Use it in your project
+
+Pick a production function that makes an important decision. Keep the rule in the Go core and use named Go tests where the application connects it to HTTP, storage, or external libraries.
+
+1. Run `pdd init` in your repository. Add `// @ ensures` contracts to the production `.go` files and fill in `.pdd/plan.json` with the rule, checks, trust assumptions, and a deliberate negative mutation for each formal clause. [Plan format](docs/plan-format.md)
+2. Run `pdd lint` and `pdd plan`. Use `pdd plan --diff` when revisiting an approved contract. Record which guarantees and assumptions a reviewer accepts with `pdd approve --reviewer "$REVIEWER" --accept-tcb "$TRUST_IDS" --expect-digest "$REVIEWED_DIGEST"`, substituting your reviewer, comma-separated trust IDs, and the digest from the plan they inspected. [Signed reviews](docs/signed-reviews.md)
+3. Run `pdd prove` and attach the receipt to the change. In CI, import the saved approval before running the same checks. Use named plans to adopt the workflow one component at a time. [CI adoption](docs/ci.md) · [Named plans](docs/named-plans.md)
+
+If you already work with a coding agent, `pdd draft` can turn a request into an editable plan and decision cards using Codex or an external JSON worker. Two separate advisory reviews help check the intent and guarantees before human approval. After approval, `pdd build` can propose repairs in a scratch copy, run the approved checks, and request an advisory gap review. `pdd pr` prepares a PR description from current evidence. [Agent workflow](docs/agent-workflow.md)
+
+## See it in a real request path
+
+| Example | What to look at |
 | --- | --- |
-| `init` | Create a draft without overwriting a plan |
-| `plans` | List default/named plans, including invalid drafts |
-| `plan` | Display intent, formal clauses, trust assumptions, mutations and exclusions; `--diff` shows changes since review |
-| `lint` | Validate mappings against production Go and ensure every formal clause has a mutation |
-| `keygen` | Create an Ed25519 keypair outside the source tree |
-| `approve` | Record a reviewer assertion; `--signing-key` signs the inspected `--expect-digest` |
-| `export-approval` | Save an existing complete review with `--to PATH` |
-| `import-approval` | Restore a matching review with `--from PATH`, preserving its assertion |
-| `prove` | Run all approved checks and mutations in scratch copies; write JSON/Markdown receipts and logs |
-| `status` | Reject unsuccessful, stale or damaged evidence |
-| `draft`, `decisions`, `decide` | Generate and settle an unapproved request-driven plan |
-| `review` | Separate advisory intent/guarantee reviews or a receipt-bound gap review |
-| `build`, `tasks` | Repair/verify/review loop and task/evidence status |
-| `report` | Offline HTML review dashboard |
-| `pr` | Evidence-backed PR preview; `--create` opens a draft PR |
-| `doctor` | Check Go and the pinned Docker image, or Java/local jar prerequisites |
+| [HTTP wallet](examples/httpwallet/README.md) | A real HTTP handler calls a proved withdrawal rule. Go tests exercise session handling, invalid requests, and concurrent withdrawals. |
+| [Multi-package authorization](examples/authorization/plan.json) | A handler calls local policy methods. PDD checks the dependency package before the caller. |
+| [Slice validation](examples/validation/README.md) | A production loop proves a property over every element using permissions, a quantified contract, and loop invariants. |
 
-Exit codes: `0` success, `1` unmet verification or operational failure, `2` CLI usage error. `--plan NAME` selects an independent plan and state namespace. `--json` emits a schema-1 result with structured errors. `approve --expect-digest SHA256` binds approval to the snapshot reviewed. See [named plans](docs/named-plans.md) and [JSON protocol](docs/cli-json.md).
+## What you can rely on
 
-`prove --timeout 2m` limits each check; `--go /path/to/go` selects Go; `--gobra-jar /path/to/gobra.jar` uses Java instead of Docker.
+- **Formal proofs cover stated contracts.** Gobra checks supported Go functions and methods, including supported calls across packages in one module. External and standard-library imports in proof packages remain outside the supported scope. [Supported proof inputs](docs/plan-format.md)
+- **Go tests provide evidence for the cases they run.** The receipt labels them separately from proofs. Each planned negative mutation must fail on the intended postcondition. A missing test, tool failure, or inconclusive mutation fails verification. [Design](docs/design.md)
+- **Receipts tie the result to the reviewed change.** Machine-readable JSON and Markdown include the plan and source digests, commands, outcomes, trust assumptions, and links or references to saved logs. `status` rejects stale evidence. Use Ed25519 approvals with a trusted policy when CI needs to verify reviewer authority. [JSON protocol](docs/cli-json.md) · [Signed reviews](docs/signed-reviews.md)
 
-## Multi-package example
-
-The [authorization example](examples/authorization/plan.json) verifies a handler that imports a local policy package. `Policy` is declared in `types.go`, `Policy.Allows` implements its value-receiver contract in `policy.go`, and the handler's own contract proves the composed result. A pointer-receiver method, `Policy.IsEnabled`, also proves its read contract while preserving the caller's access permission. The plan intentionally lists the caller first; the CLI runs the callee check first.
-
-Create an independent authorization plan, then review its assumptions:
-
-```sh
-bin/pdd --plan authorization init --from examples/authorization/plan.json
-bin/pdd --plan authorization lint
-bin/pdd --plan authorization plan --diff
-bin/pdd --plan authorization approve --reviewer YOUR_NAME --accept-tcb authorization-inputs
-bin/pdd --plan authorization prove
-bin/pdd --plan authorization status
-```
-
-This keeps the default login demonstration and its approval independent. `go test ./examples/authorization/...` exercises the production Go call path without running Gobra.
-
-## Runnable HTTP example
-
-The [HTTP wallet](examples/httpwallet/README.md) puts a verified production decision
-behind a real HTTP handler. Tests cover JSON/session boundaries and concurrent TCP
-withdrawals; its plan distinguishes empirical evidence from formal proof.
-
-## What counts as success
-
-- A formal requirement maps to an exact `ensures` clause on a named production function or receiver-qualified method, with at least one negative mutation.
-- All Gobra checks exit successfully and emit a verification-run success summary. Overflow and injectivity checks are enabled; the adapter uses Gobra's 64-bit integer semantics.
-- Every named empirical Go test actually executes and passes. Missing, skipped, cached-only or empty test runs are not evidence. Checks use `-count=1`.
-- Every formal mutation is valid Go, changes only the target function body, preserves the approved contract, and is rejected on the target postcondition. The diagnostic must point to the target source file and its exact postcondition line. A parse failure, timeout, unrelated clause failure or missing tool is inconclusive and fails the run.
-- Every trust assumption has an empirical check and was explicitly accepted. Tests support assumptions on exercised cases; they do not prove them.
-- Source, plan and approval remain current. A changed file makes an old receipt stale. A changed plan, function signature, public proof annotation or its owner, imported declaration or pure specification helper requires review again. Explicitly enabled body proof hints can change but must verify.
-
-There is no automatic fallback from failed formal verification to a green test result. Receipts label formal proof and empirical evidence separately.
-
-## Receipts and trust
-
-Verification and approval are protected by an OS-backed project lock, automatically released when the owning process exits. Concurrent proof, approval and status operations are rejected. `.pdd/run.json` identifies the newest run; an interrupted or incomplete newest run cannot fall back to an older success. SIGINT/SIGTERM cancellation and per-check timeouts terminate child process groups on supported Unix hosts, and the Docker backend removes its verifier container. A canceled run records negative evidence.
-
-Default-plan artifacts live under `.pdd/receipts/<UTC-run-id>/` (named plans use `.pdd/state/NAME/receipts/`): `receipt.json`, `receipt.md`, `inputs.json` and per-check logs. Receipts include source/plan SHA-256 digests, reviewer assertion, commit (when present), tool identities, commands, durations, outcomes, mutation results, trust assumptions, exclusions and gaps. They are ignored by Git; CI uploads them as artifacts.
-
-Default approvals and all receipts are **local attestations**. Optional Ed25519 approvals with `--policy` authenticate authorized signing keys and enforce expiry/revocation; receipts themselves remain unsigned. They are not cryptographic proof certificates or protection against a malicious project owner. Hash checks catch stale or accidentally altered artifacts. The Go compiler, Gobra/Viper/Z3, host environment and dependency behavior remain trusted. Go tests and a local jar execute with your user permissions; scratch copies protect source organization but are not an OS security sandbox. The Docker verifier has a read-only source mount and no network.
-
-## Current scope
-
-The CLI now includes request-driven drafting, decision cards, two separate advisory planning reviews, a bounded implementation/proof/gap-review loop, an offline HTML review dashboard and explicit draft-PR creation. Model commands use an external Codex CLI or JSON worker; no model is bundled. Human approval remains separate from machine and model checks. See [the executable workflow](docs/agent-workflow.md) and [comparison with the original PDD Kit](docs/reference-comparison.md). Chopin multiplayer UI and Rust/Verus-specific features remain outside this Go implementation.
-
-The Gobra adapter accepts production `.go` packages, top-level functions and named-receiver methods (for example `Policy.Allows`), single-line `// @` annotations and explicit postconditions. Type declarations can live in separate files. Each proof check lists **all production Go files** in one package.
-
-Imports inside the root Go module are supported when every imported package has its own complete Gobra check. The CLI resolves dependencies, verifies callees before callers, records those dependencies in receipts and propagates incomplete dependency verification to caller verdicts. Importing a contract alone never counts as verifying its implementation.
-
-The adapter rejects external/standard-library proof imports, `go.mod` replacements, nested modules, explicitly build-tagged or host-excluded proof files, dot/side-effect imports and `.gobra` headers that could shadow production Go. It also rejects `trusted`, `assume`, `inhale`, axioms, bodyless functions and block-style proof comments. Keep external dependencies behind explicit input assumptions; external-library adapters and generic receivers remain future work.
-
-A proof establishes stated properties under the verifier's semantics and assumptions. It does not show that the intent is complete, a precondition is satisfiable, or every behavior terminates. Negative mutations detect specific weak contracts; they are not a complete vacuity or specification-completeness analysis. The proof applies to the files given to Gobra, not automatically to every caller or the whole application.
-
-Snapshots include regular tracked and untracked files and empty directories, preserving permissions. Defaults are 16 MiB per file, 128 MiB total and 20,000 files; `.git/`, `.pdd/`, `bin/` and `dist/` are excluded. A reviewed `inputs` policy can raise limits and exclude unrelated assets. Required Go sources, local dependencies, embedded inputs and testdata cannot be excluded. Symlinks and special files are rejected. See [input scope](docs/inputs.md). Named tests must target one local package.
+`pdd-kit-go` is an independent implementation of ideas from the Proof-Driven Development Kit research prototype. Its Go verifier is Gobra. [Original PDD Kit](https://githubnext.com/projects/pdd-kit/) · [Feature comparison and limits](docs/reference-comparison.md)
 
 ## Development
 
@@ -156,6 +85,4 @@ go vet ./...
 PDD_INTEGRATION=1 go test ./internal/pdd -run 'TestGobra.*Integration' -v -count=1
 ```
 
-The integration tests invoke the real pinned Gobra image, compile/run Go boundary and HTTP tests, verify an importing handler, a separate policy package with a value-receiver method and the wallet decision, and reject deliberately wrong production implementations. GitHub Actions runs unit/race tests and that integration test, then generates and uploads the demo receipt. CI imports committed `codex-example-review` assertions; it never auto-approves current intent. These are agent-authored demonstration reviews. See [reviewed CI adoption](docs/ci.md) for production use.
-
-[Practical release checklist](docs/practical-readiness.md) · [Design and source references](docs/design.md) · [MIT license](LICENSE)
+The Check workflow runs race tests across Linux, macOS, and Windows and runs the Gobra integrations on Linux. [Check workflow](.github/workflows/check.yml) · [Build and distribution](docs/distribution.md) · [Troubleshooting](docs/troubleshooting.md) · [MIT license](LICENSE)
