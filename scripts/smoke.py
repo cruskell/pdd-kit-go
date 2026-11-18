@@ -43,6 +43,12 @@ def main():
             assert all(m["status"] == "killed" for m in result["receipt"]["mutations"])
             result = cli("--plan", plan, "status")
             assert result["current"] and result["receipt"]["success"]
+            assert cli("--plan", plan, "tasks")["machine_success"]
+            assert cli("--plan", plan, "decisions")["open_decisions"] == []
+            dashboard = f".pdd/{plan}-review.html"
+            cli("--plan", plan, "report", "--out", dashboard)
+            assert "Frozen approval contract" in (clone / dashboard).read_text()
+            assert "Proof-Driven Development receipt" in cli("--plan", plan, "pr")["body"]
             print(f"{plan}: preserved review, real proof, empirical checks, mutants and freshness passed", flush=True)
         if args.policy:
             signed = ("--plan", "validation", "--policy", str(args.policy.resolve()))

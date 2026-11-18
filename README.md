@@ -12,7 +12,7 @@ See [authenticated review gates](docs/signed-reviews.md) and
 [production qualification](docs/production-readiness.md) for signed authority,
 native platform checks and repeatable failure/recovery testing.
 
-Install the tagged CLI with `go install github.com/cruskell/pdd-kit-go/cmd/pdd@v0.2.1`,
+Install the tagged CLI with `go install github.com/cruskell/pdd-kit-go/cmd/pdd@v0.3.0`,
 or download checksummed binaries from [Releases](https://github.com/cruskell/pdd-kit-go/releases).
 
 ## Quick start
@@ -80,6 +80,11 @@ pdd --cwd /path/to/repo prove
 | `import-approval` | Restore a matching review with `--from PATH`, preserving its assertion |
 | `prove` | Run all approved checks and mutations in scratch copies; write JSON/Markdown receipts and logs |
 | `status` | Reject unsuccessful, stale or damaged evidence |
+| `draft`, `decisions`, `decide` | Generate and settle an unapproved request-driven plan |
+| `review` | Separate advisory intent/guarantee reviews or a receipt-bound gap review |
+| `build`, `tasks` | Repair/verify/review loop and task/evidence status |
+| `report` | Offline HTML review dashboard |
+| `pr` | Evidence-backed PR preview; `--create` opens a draft PR |
 | `doctor` | Check Go and the pinned Docker image, or Java/local jar prerequisites |
 
 Exit codes: `0` success, `1` unmet verification or operational failure, `2` CLI usage error. `--plan NAME` selects an independent plan and state namespace. `--json` emits a schema-1 result with structured errors. `approve --expect-digest SHA256` binds approval to the snapshot reviewed. See [named plans](docs/named-plans.md) and [JSON protocol](docs/cli-json.md).
@@ -116,7 +121,7 @@ withdrawals; its plan distinguishes empirical evidence from formal proof.
 - Every named empirical Go test actually executes and passes. Missing, skipped, cached-only or empty test runs are not evidence. Checks use `-count=1`.
 - Every formal mutation is valid Go, changes only the target function body, preserves the approved contract, and is rejected on the target postcondition. The diagnostic must point to the target source file and its exact postcondition line. A parse failure, timeout, unrelated clause failure or missing tool is inconclusive and fails the run.
 - Every trust assumption has an empirical check and was explicitly accepted. Tests support assumptions on exercised cases; they do not prove them.
-- Source, plan and approval remain current. A changed file makes an old receipt stale. A changed plan, function signature, proof annotation or its owner, imported declaration or pure specification helper requires review again.
+- Source, plan and approval remain current. A changed file makes an old receipt stale. A changed plan, function signature, public proof annotation or its owner, imported declaration or pure specification helper requires review again. Explicitly enabled body proof hints can change but must verify.
 
 There is no automatic fallback from failed formal verification to a green test result. Receipts label formal proof and empirical evidence separately.
 
@@ -130,7 +135,7 @@ Default approvals and all receipts are **local attestations**. Optional Ed25519 
 
 ## Current scope
 
-The end-to-end workflow is implemented. Natural-language intent is reviewed and mapped by a developer or coding agent; the CLI does not contain an LLM or infer contracts automatically. It does not integrate with Chopin, open pull requests, or implement the reference prototype's multiplayer UI.
+The CLI now includes request-driven drafting, decision cards, two separate advisory planning reviews, a bounded implementation/proof/gap-review loop, an offline HTML review dashboard and explicit draft-PR creation. Model commands use an external Codex CLI or JSON worker; no model is bundled. Human approval remains separate from machine and model checks. See [the executable workflow](docs/agent-workflow.md) and [comparison with the original PDD Kit](docs/reference-comparison.md). Chopin multiplayer UI and Rust/Verus-specific features remain outside this Go implementation.
 
 The Gobra adapter accepts production `.go` packages, top-level functions and named-receiver methods (for example `Policy.Allows`), single-line `// @` annotations and explicit postconditions. Type declarations can live in separate files. Each proof check lists **all production Go files** in one package.
 

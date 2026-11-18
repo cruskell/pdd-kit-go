@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.3.0
+
+- Add request-driven planning, contextual decision cards and original-intent mappings.
+- Require separate advisory intent/guarantee reviews for generated plans before human approval.
+- Add explicit per-assumed-clause acceptance, impact and Given/When/Then checks.
+- Add bounded scratch implementation/proof/gap-review loops with optional verified installation.
+- Keep public contracts frozen while permitting explicitly enabled provable body hints.
+- Add implementation-independent last-return negative mutations, task/coverage views,
+  offline HTML review and explicitly requested evidence-backed draft PR creation.
+- Preserve legacy plans/reviews and document remaining reference/backend differences.
+- Validate the repair/install workflow with real Gobra and scripted worker subprocesses;
+  live model quality is not part of that deterministic qualification.
+
+
 ## v0.2.1
 
 - Prevent `status` from accepting historical success while another project

@@ -116,6 +116,9 @@ type processControl struct {
 }
 
 func execute(ctx context.Context, root string, command []string, timeout time.Duration) Execution {
+	return executeWithInput(ctx, root, command, timeout, nil)
+}
+func executeWithInput(ctx context.Context, root string, command []string, timeout time.Duration, input []byte) Execution {
 	e := Execution{Status: "failed", Command: command, ExitCode: -1}
 	if timeout <= 0 {
 		timeout = 2 * time.Minute
@@ -124,6 +127,9 @@ func execute(ctx context.Context, root string, command []string, timeout time.Du
 	defer cancel()
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.Dir = root
+	if input != nil {
+		cmd.Stdin = bytes.NewReader(input)
+	}
 	control, setupErr := configureProcess(cmd, ctx)
 	if setupErr != nil {
 		e.Status = "unavailable"

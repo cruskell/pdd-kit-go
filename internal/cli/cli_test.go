@@ -301,3 +301,42 @@ func TestExplicitProjectDirectoryAliasIsCanonicalized(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPlanningCommandsHandleInvalidDraftAndJSON(t *testing.T) {
+	root := t.TempDir()
+	var out, diagnostics bytes.Buffer
+	run := func(args ...string) (int, Response) {
+		out.Reset()
+		diagnostics.Reset()
+		code := Run(append([]string{"--cwd", root, "--json"}, args...), &out, &diagnostics, "test")
+		return code, decodeResponse(t, &out, code)
+	}
+	if code, _ := run("init"); code != 0 {
+		t.Fatal(diagnostics.String())
+	}
+	if code, response := run("decisions"); code != 0 || response.Command != "decisions" {
+		t.Fatal("cannot inspect an unfinished draft")
+	}
+	path := filepath.Join(t.TempDir(), "review.html")
+	if code, _ := run("report", "--out", path); code != 0 {
+		t.Fatal(diagnostics.String())
+	}
+	if b, err := os.ReadFile(path); err != nil || !bytes.Contains(b, []byte("Before approval")) {
+		t.Fatal("missing draft dashboard")
+	}
+	if code, _ := run("decide", "--id", "x", "--option", "y", "--reason", "--json"); code == 0 {
+		t.Fatal("unreviewed decision accepted")
+	}
+	if code, _ := run("draft"); code == 0 {
+		t.Fatal("missing request accepted")
+	}
+	if code, _ := run("build"); code == 0 {
+		t.Fatal("unapproved scaffold built")
+	}
+	if code, _ := run("pr", "--create"); code == 0 {
+		t.Fatal("unverified scaffold published")
+	}
+	if code, _ := run("review", "--help"); code != 0 {
+		t.Fatal("help failed")
+	}
+}

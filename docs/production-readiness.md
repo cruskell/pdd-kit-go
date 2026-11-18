@@ -75,3 +75,11 @@ lifecycle containment, not an OS security sandbox for hostile project code.
 The Windows implementation follows Microsoft's [Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
 and [process creation flags](https://learn.microsoft.com/en-us/windows/win32/procthread/process-creation-flags)
 documentation. Native CI must pass before this change is promoted.
+
+## v0.3.0 workflow qualification
+
+The [reference comparison](reference-comparison.md) records added planning,
+review, repair and delivery features and remaining gaps. The complete repair loop
+is exercised against real Gobra with a deterministic external worker fixture.
+This qualifies orchestration, contract preservation, empirical execution and
+receipt binding; it does not establish live model quality or production history.
