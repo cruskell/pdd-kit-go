@@ -25,16 +25,22 @@ const ApprovalPath = ".pdd/approval.json"
 const GobraImage = "ghcr.io/viperproject/gobra@sha256:5e96431b06c2e6209aa767df9153bb4cf8b2620598598f1d7d3f3a74c09c14f9"
 
 type Plan struct {
-	Inputs       *InputPolicy `json:"inputs,omitempty"`
-	selectedName string
-	Schema       int           `json:"schema"`
-	Name         string        `json:"name"`
-	Intent       string        `json:"intent"`
-	NonGoals     []string      `json:"non_goals"`
-	Requirements []Requirement `json:"requirements"`
-	Checks       []Check       `json:"checks"`
-	Trust        []Trust       `json:"trusted_boundary"`
-	Mutations    []Mutation    `json:"mutations"`
+	OriginalRequest string           `json:"original_request,omitempty"`
+	PlanningReviews []AnalysisRecord `json:"planning_reviews,omitempty"`
+	Decisions       []Decision       `json:"decisions,omitempty"`
+	IntentMap       []IntentItem     `json:"intent_map,omitempty"`
+	Scenarios       []Scenario       `json:"scenarios,omitempty"`
+	Workflow        *WorkflowPolicy  `json:"workflow,omitempty"`
+	Inputs          *InputPolicy     `json:"inputs,omitempty"`
+	selectedName    string
+	Schema          int           `json:"schema"`
+	Name            string        `json:"name"`
+	Intent          string        `json:"intent"`
+	NonGoals        []string      `json:"non_goals"`
+	Requirements    []Requirement `json:"requirements"`
+	Checks          []Check       `json:"checks"`
+	Trust           []Trust       `json:"trusted_boundary"`
+	Mutations       []Mutation    `json:"mutations"`
 }
 type Requirement struct {
 	ID       string `json:"id"`
@@ -53,11 +59,14 @@ type Check struct {
 	Tests   []string `json:"tests,omitempty"`
 }
 type Trust struct {
-	ID         string `json:"id"`
-	Assumption string `json:"assumption"`
-	Check      string `json:"check"`
+	Affects    []string        `json:"affects,omitempty"`
+	Clauses    []AssumedClause `json:"clauses,omitempty"`
+	ID         string          `json:"id"`
+	Assumption string          `json:"assumption"`
+	Check      string          `json:"check"`
 }
 type Mutation struct {
+	Kind        string `json:"kind,omitempty"`
 	ID          string `json:"id"`
 	Requirement string `json:"requirement"`
 	Check       string `json:"check"`
@@ -364,6 +373,9 @@ func (p Plan) Validate(root string) error {
 			return fmt.Errorf("%s: formal clause requires at least one mutation", r.ID)
 		}
 	}
+	if err := validatePlanning(root, p, ids); err != nil {
+		return err
+	}
 	if err := validateInputs(root, p); err != nil {
 		return err
 	}
@@ -475,23 +487,56 @@ func contracts(file string, b []byte) ([]string, error) {
 	return result, nil
 }
 func Mutate(m Mutation, r Requirement, b []byte) ([]byte, error) {
-	if m.Find == "" || m.Find == m.Replace || bytes.Count(b, []byte(m.Find)) != 1 {
-		return nil, fmt.Errorf("%s: find must match exactly once and replacement must differ", m.ID)
+
+	var mutated []byte
+	if m.Kind == "last-return" {
+		if m.Find != "" || !strings.HasPrefix(strings.TrimSpace(m.Replace), "return") {
+			return nil, fmt.Errorf("%s: last-return uses a return statement replacement and no find text", m.ID)
+		}
+		fn, err := function(m.File, b, r.Function)
+		if err != nil {
+			return nil, err
+		}
+		if fn.Body == nil {
+			return nil, fmt.Errorf("missing function body")
+		}
+		var target *ast.ReturnStmt
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			if _, ok := n.(*ast.FuncLit); ok {
+				return false
+			}
+			if ret, ok := n.(*ast.ReturnStmt); ok && (target == nil || ret.Pos() > target.Pos()) {
+				target = ret
+			}
+			return true
+		})
+		if target == nil {
+			return nil, fmt.Errorf("%s: target function has no return statement", m.ID)
+		}
+		start, end := int(target.Pos())-1, int(target.End())-1
+		mutated = append(append(append([]byte{}, b[:start]...), []byte(m.Replace)...), b[end:]...)
+	} else {
+		if m.Kind != "" && m.Kind != "text" {
+			return nil, fmt.Errorf("%s: unknown mutation kind", m.ID)
+		}
+		if m.Find == "" || m.Find == m.Replace || bytes.Count(b, []byte(m.Find)) != 1 {
+			return nil, fmt.Errorf("%s: find must match exactly once and replacement must differ", m.ID)
+		}
+		fn, err := function(m.File, b, r.Function)
+		if err != nil {
+			return nil, err
+		}
+		if fn.Body == nil {
+			return nil, fmt.Errorf("missing function body")
+		}
+		start := bytes.Index(b, []byte(m.Find))
+		bodyStart, bodyEnd := int(fn.Body.Pos())-1, int(fn.Body.End())-1
+		if start <= bodyStart || start+len(m.Find) > bodyEnd {
+			return nil, fmt.Errorf("%s: mutation must be inside the target function body", m.ID)
+		}
+		mutated = bytes.Replace(b, []byte(m.Find), []byte(m.Replace), 1)
 	}
-	fn, err := function(m.File, b, r.Function)
-	if err != nil {
-		return nil, err
-	}
-	if fn.Body == nil {
-		return nil, fmt.Errorf("missing function body")
-	}
-	start := bytes.Index(b, []byte(m.Find))
-	bodyStart := int(fn.Body.Pos()) - 1
-	bodyEnd := int(fn.Body.End()) - 1
-	if start <= bodyStart || start+len(m.Find) > bodyEnd {
-		return nil, fmt.Errorf("%s: mutation must be inside the target function body", m.ID)
-	}
-	mutated := bytes.Replace(b, []byte(m.Find), []byte(m.Replace), 1)
+
 	before, err := contracts(m.File, b)
 	if err != nil {
 		return nil, err
@@ -526,12 +571,18 @@ func ApproveSignedWithPolicy(root string, p Plan, reviewer string, accepted []st
 	if err = authoredPlanMatches(root, p); err != nil {
 		return Approval{}, err
 	}
+	if err = requirePlanningReviews(root, p); err != nil {
+		return Approval{}, err
+	}
 	if strings.TrimSpace(reviewer) == "" {
 		return Approval{}, fmt.Errorf("--reviewer is required; approval records an assertion, not an authenticated identity")
 	}
 	var want []string
 	for _, t := range p.Trust {
 		want = append(want, t.ID)
+		for _, clause := range t.Clauses {
+			want = append(want, clause.ID)
+		}
 	}
 	sort.Strings(want)
 	accepted = append([]string{}, accepted...)
@@ -606,6 +657,9 @@ func validateApproval(root string, p Plan, a Approval) error {
 	var want []string
 	for _, t := range p.Trust {
 		want = append(want, t.ID)
+		for _, clause := range t.Clauses {
+			want = append(want, clause.ID)
+		}
 	}
 	sort.Strings(want)
 	got := append([]string{}, a.AcceptedTrust...)

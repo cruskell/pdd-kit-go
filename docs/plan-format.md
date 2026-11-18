@@ -37,7 +37,7 @@ Mutations execute on separate snapshots. A mutant is killed only when Gobra retu
 
 ## Approval and freshness
 
-The selected plan's approval record binds its identity, saved review, normalized plan plus proof annotations and Go declarations to a self-asserted reviewer, accepted trust IDs and timestamp. Implementation bodies can change without changing the contract approval, but mutations still have to match. `plan --diff` compares the current frozen content with the saved review; `approve --expect-digest SHA256` rejects changes since that review. Legacy default records remain readable and explicitly report when historical review text is unavailable. Changing proof annotations, their owning declarations, function signatures, constants, types, the imported module identity or intent requires renewed review. A precondition moved from a helper to the verified function is a contract change even when annotation text and declaration order stay the same. Pure helper bodies define terms used in specifications, so their bodies are also bound to approval; a helper implementation cannot silently weaken the meaning of an unchanged `ensures` clause. This includes invariants: the prototype freezes every `// @` annotation, not just postconditions.
+The selected plan's approval record binds its identity, saved review, normalized plan plus proof annotations and Go declarations to a self-asserted reviewer, accepted trust IDs and timestamp. Implementation bodies can change without changing the contract approval, but mutations still have to match. `plan --diff` compares the current frozen content with the saved review; `approve --expect-digest SHA256` rejects changes since that review. Legacy default records remain readable and explicitly report when historical review text is unavailable. Changing proof annotations, their owning declarations, function signatures, constants, types, the imported module identity or intent requires renewed review. A precondition moved from a helper to the verified function is a contract change even when annotation text and declaration order stay the same. Pure helper bodies define terms used in specifications, so their bodies are also bound to approval; a helper implementation cannot silently weaken the meaning of an unchanged `ensures` clause. By default this includes invariants. An explicit `workflow.allow_proof_hints` option permits provable body hints while freezing contracts, pure definitions and other annotations; see [the workflow](agent-workflow.md).
 
 `prove` takes a digest of the repository files, executes isolated check copies, compares the current source and plan afterward, and emits a receipt. Each baseline check receives a fresh snapshot and must not modify it. Receipts record formal dependency check IDs, and `status` checks freshness, log hashes and dependency coverage. New source edits invalidate old receipts even when the prior checks passed. Re-run verification after editing.
 
@@ -50,3 +50,25 @@ draft -> valid -> approved -> proved/evidenced + mutations killed -> current rec
                        v                      v
                  pending approval        stale receipt
 ```
+
+## Optional proof-driven planning fields
+
+`original_request` preserves the request; `intent_map` maps verbatim excerpts to
+requirement/decision IDs. `decisions` records contextual options and human answers;
+an unresolved card blocks approval. `scenarios` uses Given/When/Then with a named
+Go test and purpose (`boundary`, `integration`, `runtime`, `formal-regression`).
+A trusted boundary can add `affects` requirement IDs and `clauses` with distinct
+`id`, assumption `text`, `impact` if false and selected `test`. Every clause needs a
+matching scenario and individual `--accept-tcb` acceptance alongside its boundary.
+
+`workflow` optionally sets `require_dual_review`, `require_gap_review`, and
+`allow_proof_hints`. Generated drafts enable all three. `planning_reviews` contains
+strict advisory intent/guarantee records included in the approval digest. These
+fields are optional for legacy plans. Full CLI usage and worker response formats
+are in [the workflow guide](agent-workflow.md).
+
+Mutation `kind: "last-return"` replaces the lexically last return in the mapped
+function, skipping nested function literals. Set `find` to an empty string and
+`replace` to a return statement. This stays applicable when the implementation
+body changes; a surviving/no-op mutant still cannot produce success. Omitted kind
+or `kind: "text"` retains the existing exact-once text behavior.

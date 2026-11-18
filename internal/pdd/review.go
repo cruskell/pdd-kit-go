@@ -47,7 +47,16 @@ type ReviewReport struct {
 	Changes          []ReviewChange      `json:"changes"`
 }
 
-func BuildReview(root string, p Plan) (ReviewBundle, error) {
+func BuildReview(root string, p Plan) (ReviewBundle, error) { return buildBaseReview(root, p) }
+func specificationDigest(root string, p Plan) (string, error) {
+	p.PlanningReviews = nil
+	r, err := buildBaseReview(root, p)
+	if err != nil {
+		return "", err
+	}
+	return r.digest()
+}
+func buildBaseReview(root string, p Plan) (ReviewBundle, error) {
 	graph, err := resolvePackages(root, p)
 	if err != nil {
 		return ReviewBundle{}, err
@@ -71,7 +80,7 @@ func BuildReview(root string, p Plan) (ReviewBundle, error) {
 		if err != nil {
 			return review, err
 		}
-		annotations, err := contracts(file, source)
+		annotations, err := reviewedAnnotations(file, source, p.Workflow != nil && p.Workflow.MutableProofHints)
 		if err != nil {
 			return review, err
 		}
@@ -79,7 +88,7 @@ func BuildReview(root string, p Plan) (ReviewBundle, error) {
 		if err != nil {
 			return review, err
 		}
-		bindings, err := annotationBindings(file, source)
+		bindings, err := reviewedBindings(file, source, p.Workflow != nil && p.Workflow.MutableProofHints)
 		if err != nil {
 			return review, err
 		}
@@ -133,6 +142,7 @@ func (r ReviewBundle) digest() (string, error) {
 			h.Write(compact.Bytes())
 		}
 	}
+
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 func Digest(root string, p Plan) (string, error) {

@@ -32,6 +32,19 @@ Usage: pdd [--cwd DIR] [--plan NAME] [--json] <command> [options]
   prove      Run approved Gobra proofs, named Go tests and negative mutations
   status     Check whether this plan's latest receipt is current and successful
   doctor     Check Go and Docker/Java prerequisites
+  draft      Generate a plan from --request-file; --apply installs an unapproved draft
+  decisions  Inspect decision cards, including unresolved drafts
+  decide     Answer a card: --id ID --option ID --reason TEXT --expect-draft HASH
+  review     Independent advisory review: --role both|intent|guarantees|gap
+  tasks      Show check dependencies, evidence and remaining workflow gaps
+  build      Repair/verify/review loop; --apply installs a verified candidate
+  report     Write an offline HTML review dashboard: --out PATH
+  pr         Preview an evidence-backed PR; --create explicitly creates a draft PR
+
+Agent options: --driver codex or --worker EXECUTABLE (JSON stdin/stdout)
+              --files a.go,b.go --agent-timeout 5m
+Build options: --max-iterations 3 --go PATH --gobra-jar PATH --timeout 2m
+Review agents are advisory. Human approval and machine proof remain mandatory.
 
 Global: --policy PATH (or PDD_REVIEW_POLICY) enforces authorized, unexpired signatures
 Global: --cwd DIR, --plan NAME (default: default), --json, --version, --help
@@ -104,6 +117,9 @@ func Run(args []string, out, errOut io.Writer, version string) (exitCode int) {
 	stat, err := os.Stat(cwd)
 	if err != nil || !stat.IsDir() {
 		return printer.finish(2, nil, "usage", fmt.Errorf("--cwd must name an existing directory"), "")
+	}
+	if workflowCommand(command) {
+		return runWorkflow(cwd, global, rest, printer, out, errOut, version)
 	}
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
 	fs.SetOutput(errOut)

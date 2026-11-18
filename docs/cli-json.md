@@ -68,3 +68,15 @@ real identity and authorization requirements.
 Keep generated result files under `.pdd/` (excluded from source snapshots). Redirecting output into a snapshotted source-tree file changes that tree after verification and correctly makes the next status check stale.
 
 With `--policy` or `PDD_REVIEW_POLICY`, prove/status enforce authorized unexpired signatures. Receipts include `approval_policy` (digest, key ID, reviewer). Signed approvals cannot be proved without a policy. `keygen` and `--signing-key` support the workflow described in [signed reviews](signed-reviews.md).
+
+## Proof-driven workflow responses
+
+`draft` returns the proposed analysis, draft view/hash and whether it was applied.
+`decisions` returns even unresolved drafts with validation errors and open IDs.
+`decide` requires `--expect-draft` and returns the updated unapproved plan.
+`review` returns advisory records; any non-ready review exits 1. `tasks` returns
+machine freshness/success, check dependencies, remaining gaps, a current gap review
+and conservative pruning candidates. `build` returns stage, success, decision-needed
+state, applied edits, iterations and artifact paths; success=false exits 1.
+`report` returns its written HTML path. `pr` returns the evidence body/path and a URL
+only after explicit successful `--create`. All use the same schema-1 envelope.

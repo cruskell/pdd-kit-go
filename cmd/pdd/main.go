@@ -17,7 +17,7 @@ func buildVersion() string {
 	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
 		return info.Main.Version
 	}
-	return "0.2.1-dev"
+	return "0.3.0-dev"
 }
 
 func main() { os.Exit(cli.Run(os.Args[1:], os.Stdout, os.Stderr, buildVersion())) }

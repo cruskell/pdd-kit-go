@@ -49,7 +49,13 @@ func TestSkipped(t *testing.T) { t.Skip("not evidence") }
 }
 func approveFixture(t *testing.T, root string, p Plan) {
 	t.Helper()
-	if _, err := Approve(root, p, "test-reviewer", []string{"identity"}); err != nil {
+	accepted := []string{"identity"}
+	for _, trust := range p.Trust {
+		for _, clause := range trust.Clauses {
+			accepted = append(accepted, clause.ID)
+		}
+	}
+	if _, err := Approve(root, p, "test-reviewer", accepted); err != nil {
 		t.Fatal(err)
 	}
 }
