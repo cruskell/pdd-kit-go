@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/cruskell/pdd-kit-go/internal/pdd"
+	"github.com/cruskell/proofsteer-go/internal/pdd"
 )
 
 func renderReview(out io.Writer, report pdd.ReviewReport, diff bool) {

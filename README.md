@@ -1,12 +1,12 @@
-# pdd-kit-go
+# ProofSteer
 
-**Prove the Go decisions you need to get right.**
+**Proof-Driven Development for Go.**
 
 When a change touches who can sign in, what can be authorized, or when a balance can be debited, examples alone leave cases unchecked. Write the rule as a contract on the production Go function. `pdd` runs Gobra to check it, runs Go tests for the surrounding code, and writes a receipt you can bring to code review.
 
 Start with one decision in an existing Go project. The core workflow works without an LLM account.
 
-[View live report examples](https://pdd-kit-go-demo.cruskell.chatgpt.site) · [Try the login example](#try-it) · [Use it in your project](#use-it-in-your-project) · [Download pdd](https://github.com/cruskell/pdd-kit-go/releases/tag/v0.4.0)
+[View live report examples](https://proofsteer-demo.cruskell.chatgpt.site) · [Try the login example](#try-it) · [Use it in your project](#use-it-in-your-project) · [Download pdd](https://github.com/cruskell/proofsteer-go/releases/tag/v0.4.0)
 
 ## What a proof catches
 
@@ -23,10 +23,10 @@ An implementation that always returns `false` satisfies a rejection-only rule. I
 
 ## Try it
 
-Use Go 1.20 or newer and Docker on a 64-bit host. Put the Go install directory on your `PATH`, or use the [checksummed binaries](https://github.com/cruskell/pdd-kit-go/releases/tag/v0.4.0). To use a local Gobra JAR, see [troubleshooting](docs/troubleshooting.md).
+Use Go 1.20 or newer and Docker on a 64-bit host. Put the Go install directory on your `PATH`, or use the [checksummed binaries](https://github.com/cruskell/proofsteer-go/releases/tag/v0.4.0). To use a local Gobra JAR, see [troubleshooting](docs/troubleshooting.md).
 
 ```sh
-go install github.com/cruskell/pdd-kit-go/cmd/pdd@v0.4.0
+go install github.com/cruskell/proofsteer-go/cmd/pdd@v0.4.0
 pdd demo
 ```
 
@@ -71,7 +71,7 @@ If you already work with a coding agent, `pdd draft` can turn a request into an 
 - **Go and browser tests provide evidence for the cases they run.** The receipt labels them separately from proofs. Each planned negative mutation must fail on the intended postcondition. A missing test, tool failure, or inconclusive mutation fails verification. [Design](docs/design.md)
 - **Receipts tie the result to the reviewed change.** Machine-readable JSON and Markdown include the plan and source digests, commands, outcomes, trust assumptions, and links or references to saved logs. `status` rejects stale evidence. Use Ed25519 approvals with a trusted policy when CI needs to verify reviewer authority. [JSON protocol](docs/cli-json.md) · [Signed reviews](docs/signed-reviews.md)
 
-`pdd-kit-go` is an independent implementation of ideas from the Proof-Driven Development Kit research prototype. Its Go verifier is Gobra. [Original PDD Kit](https://githubnext.com/projects/pdd-kit/) · [Feature comparison and limits](docs/reference-comparison.md)
+ProofSteer is an independent implementation of ideas from the Proof-Driven Development Kit research prototype. Its Go verifier is Gobra. [Original PDD Kit](https://githubnext.com/projects/pdd-kit/) · [Feature comparison and limits](docs/reference-comparison.md)
 
 ## Development
 

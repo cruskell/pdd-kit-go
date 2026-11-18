@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cruskell/pdd-kit-go/examples/httpwallet/policy"
+	"github.com/cruskell/proofsteer-go/examples/httpwallet/policy"
 )
 
 type Session struct {

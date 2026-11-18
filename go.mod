@@ -1,3 +1,3 @@
-module github.com/cruskell/pdd-kit-go
+module github.com/cruskell/proofsteer-go
 
 go 1.20

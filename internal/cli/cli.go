@@ -14,10 +14,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cruskell/pdd-kit-go/internal/pdd"
+	"github.com/cruskell/proofsteer-go/internal/pdd"
 )
 
-const help = `pdd — Proof-Driven Development for Go
+const help = `ProofSteer — Proof-Driven Development for Go
 
 Usage: pdd [--cwd DIR] [--plan NAME] [--json] <command> [options]
 

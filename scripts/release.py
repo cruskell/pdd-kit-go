@@ -43,11 +43,11 @@ def main():
     commit = run("git", "rev-parse", "HEAD")
     flags = ["-trimpath", "-buildvcs=false", "-ldflags=-s -w -X main.version=" + args.version]
     license_bytes = (ROOT / "LICENSE").read_bytes()
-    install = ("pdd-kit-go " + args.version + "\n\n"
+    install = ("ProofSteer " + args.version + "\n\n"
                "Verify SHA256SUMS before extracting; place pdd (pdd.exe on Windows) on PATH.\n"
                "Run pdd --version and pdd --help. Go is needed for empirical tests;\n"
                "formal verification needs Docker and the pinned Gobra image (pdd doctor).\n"
-               "Source, examples and full instructions:\nhttps://github.com/cruskell/pdd-kit-go\n"
+               "Source, examples and full instructions:\nhttps://github.com/cruskell/proofsteer-go\n"
                "Use --policy with authorized signed reviews for production CI; read trust boundaries.\n").encode()
     for system, arch in TARGETS:
         name = "pdd.exe" if system == "windows" else "pdd"
@@ -56,7 +56,7 @@ def main():
         subprocess.run([go, "build", *flags, "-o", str(binary), "./cmd/pdd"], cwd=ROOT, env=target_env, check=True)
         files = [(name, binary.read_bytes(), 0o755), ("LICENSE", license_bytes, 0o644), ("INSTALL.txt", install, 0o644)]
         binary.unlink()
-        prefix = f"pdd-kit-go_{args.version}_{system}_{arch}"
+        prefix = f"proofsteer-go_{args.version}_{system}_{arch}"
         if system == "windows":
             with zipfile.ZipFile(out / (prefix + ".zip"), "w", compression=zipfile.ZIP_STORED) as archive:
                 for filename, data, mode in files:

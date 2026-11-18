@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cruskell/pdd-kit-go/internal/pdd"
+	"github.com/cruskell/proofsteer-go/internal/pdd"
 )
 
 func workflowCommand(c string) bool {

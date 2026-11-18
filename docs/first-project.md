@@ -82,7 +82,7 @@ A GitHub Actions job can run these steps after checkout and Go setup:
 
 ```yaml
 - name: Install PDD
-  run: go install github.com/cruskell/pdd-kit-go/cmd/pdd@v0.4.0
+  run: go install github.com/cruskell/proofsteer-go/cmd/pdd@v0.4.0
 - name: Verify reviewed inventory policy
   run: |
     pdd import-approval --from .pdd/reviewed-inventory.json

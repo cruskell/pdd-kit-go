@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"github.com/cruskell/pdd-kit-go/examples/authorization/policy"
+	"github.com/cruskell/proofsteer-go/examples/authorization/policy"
 	"testing"
 )
 

@@ -1,6 +1,6 @@
 package handler
 
-import "github.com/cruskell/pdd-kit-go/examples/authorization/policy"
+import "github.com/cruskell/proofsteer-go/examples/authorization/policy"
 
 // @ ensures result == (enabled && age >= minimum && !locked)
 func Authorize(enabled bool, minimum, age int, locked bool) (result bool) {

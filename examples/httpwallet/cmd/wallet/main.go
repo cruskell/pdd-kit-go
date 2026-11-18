@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cruskell/pdd-kit-go/examples/httpwallet/app"
+	"github.com/cruskell/proofsteer-go/examples/httpwallet/app"
 )
 
 //go:embed wallet.html

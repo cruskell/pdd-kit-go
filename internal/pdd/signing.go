@@ -42,6 +42,8 @@ type PublicIdentity struct {
 	PublicKey string `json:"public_key"`
 }
 
+// The v1 domain separator is part of the signed bytes. Retain it to verify
+// approvals recorded before the rename.
 func approvalMessage(a Approval) ([]byte, error) {
 	a.Signature = nil
 	data, err := json.Marshal(a)

@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	pddkit "github.com/cruskell/pdd-kit-go"
-	"github.com/cruskell/pdd-kit-go/internal/pdd"
+	proofsteer "github.com/cruskell/proofsteer-go"
+	"github.com/cruskell/proofsteer-go/internal/pdd"
 )
 
 type demoResult struct {
@@ -26,7 +26,7 @@ func runDemo(ctx context.Context, printer output, destination string, options pd
 	if err := os.Mkdir(destination, 0755); err != nil {
 		return fail(fmt.Errorf("create a new demo directory: %w", err))
 	}
-	files := pddkit.DemoFiles()
+	files := proofsteer.DemoFiles()
 	if err := fs.WalkDir(files, ".", func(name string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() {
 			return err
