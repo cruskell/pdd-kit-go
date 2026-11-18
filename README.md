@@ -2,11 +2,19 @@
 
 **Proof-Driven Development for Go.**
 
-When a change touches who can sign in, what can be authorized, or when a balance can be debited, examples alone leave cases unchecked. Write the rule as a contract on the production Go function. `pdd` runs Gobra to check it, runs Go tests for the surrounding code, and writes a receipt you can bring to code review.
+ProofSteer checks decision rules in production Go code, runs tests for the surrounding behavior, and writes a receipt you can bring to code review.
 
 Start with one decision in an existing Go project. The core workflow works without an LLM account.
 
 [View live report examples](https://proofsteer-demo.cruskell.chatgpt.site) · [Try the login example](#try-it) · [Use it in your project](#use-it-in-your-project) · [Download pdd](https://github.com/cruskell/proofsteer-go/releases/tag/v0.4.0)
+
+## Why proof-driven development?
+
+AI agents can write code quickly. Human review can become the bottleneck when someone has to trace each branch of an authorization or payment rule and check it against the intended behavior. Passing tests confirm the cases they exercise.
+
+Start by describing the rule in plain language. An agent can draft a Go contract, and a human reviewer approves the contract and its assumptions. After implementation, `pdd` runs Gobra to verify that the Go function satisfies the contract for every input it covers. Reviewers can focus on whether the rule matches the intent, whether its assumptions hold, and whether tests cover behavior outside the proof.
+
+In the wallet demo, a fixed balance of 100 still gives **16 cases** to check by hand. Combine two authentication states, two lock states, and four withdrawal amounts (0, 1, 100, and 101). Gobra takes over checking the withdrawal decision for those cases. Go and browser tests exercise the HTTP boundary and the withdrawal flow. [See the review comparison](https://proofsteer-demo.cruskell.chatgpt.site/en/#review-cost)
 
 ## What a proof catches
 
