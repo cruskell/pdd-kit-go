@@ -4,7 +4,7 @@ Versioned binaries and checksums are published on [GitHub Releases](https://gith
 Go users can install the tagged CLI directly:
 
 ```sh
-go install github.com/cruskell/pdd-kit-go/cmd/pdd@v0.3.0
+go install github.com/cruskell/pdd-kit-go/cmd/pdd@v0.4.0
 pdd --version
 ```
 
@@ -24,10 +24,10 @@ Release builds use the exact Go 1.27.4 toolchain. Fetch it from
 From a clean checkout of the release commit, with Python 3 available:
 
 ```sh
-GO=/path/to/go1.27.4/bin/go python3 scripts/release.py v0.3.0
+GO=/path/to/go1.27.4/bin/go python3 scripts/release.py v0.4.0
 ```
 
-The script produces five archives under `dist/v0.3.0`: Linux amd64/arm64,
+The script produces five archives under `dist/v0.4.0`: Linux amd64/arm64,
 macOS amd64/arm64 and Windows amd64, plus `BUILD.json` and `SHA256SUMS`.
 It disables CGO, VCS stamping and local file paths, embeds the requested CLI
 version, records the commit/toolchain/flags, and normalizes archive metadata.
@@ -67,7 +67,7 @@ example reviews, run actual proofs and HTTP tests, kill mutants and check stale
 source handling. It needs Go and Docker with the pinned image already pulled:
 
 ```sh
-python3 scripts/smoke.py --pdd /absolute/path/to/pdd --version v0.3.0
+python3 scripts/smoke.py --pdd /absolute/path/to/pdd --version v0.4.0
 ```
 
 The [release workflow](../.github/workflows/release.yml) builds and validates

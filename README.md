@@ -6,7 +6,7 @@ When a change touches who can sign in, what can be authorized, or when a balance
 
 Start with one decision in an existing Go project. The core workflow works without an LLM account.
 
-[Try the login example](#try-it) · [Use it in your project](#use-it-in-your-project) · [Download pdd](https://github.com/cruskell/pdd-kit-go/releases/tag/v0.3.0)
+[View live report examples](https://pdd-kit-go-demo.cruskell.chatgpt.site) · [Try the login example](#try-it) · [Use it in your project](#use-it-in-your-project) · [Download pdd](https://github.com/cruskell/pdd-kit-go/releases/tag/v0.4.0)
 
 ## What a proof catches
 
@@ -23,36 +23,33 @@ An implementation that always returns `false` satisfies a rejection-only rule. I
 
 ## Try it
 
-Use Go 1.20 or newer and Docker on a 64-bit host. Put the Go install directory on your `PATH`, or use the [checksummed binaries](https://github.com/cruskell/pdd-kit-go/releases/tag/v0.3.0). To use a local Gobra JAR, see [troubleshooting](docs/troubleshooting.md).
+Use Go 1.20 or newer and Docker on a 64-bit host. Put the Go install directory on your `PATH`, or use the [checksummed binaries](https://github.com/cruskell/pdd-kit-go/releases/tag/v0.4.0). To use a local Gobra JAR, see [troubleshooting](docs/troubleshooting.md).
 
 ```sh
-go install github.com/cruskell/pdd-kit-go/cmd/pdd@v0.3.0
-git clone https://github.com/cruskell/pdd-kit-go.git
-cd pdd-kit-go
-pdd plan
+go install github.com/cruskell/pdd-kit-go/cmd/pdd@v0.4.0
+pdd demo
 ```
 
-`pdd plan` lets you inspect the rule, checks, proposed mutations and caller assumptions before you run the verifier. The following commands reuse the repository's demonstration approval. For your own rules, record your team's review as shown below.
+`pdd demo` writes the bundled login example into a new `pdd-demo` directory,
+imports its demonstration approval, and runs the real Gobra and Go checks.
+Docker pulls the pinned Gobra image on the first run. The command prints the
+HTML report and receipt paths. Choose another empty name with `--out DIR`.
 
-```sh
-docker pull ghcr.io/viperproject/gobra@sha256:5e96431b06c2e6209aa767df9153bb4cf8b2620598598f1d7d3f3a74c09c14f9
-pdd import-approval --from .pdd/reviews/default.json
-pdd prove
-pdd status
-```
-
-Look for these two lines in `pdd prove` output. Each shows what the corresponding check established.
+The report shows the same two requirement results that `pdd prove` prints.
 
 ```text
 login-decision: proved (formal)
 login-boundary: evidenced (empirical)
 ```
 
-Open the `receipt.md` path printed by `pdd prove` to see the checks, rejected mutations, trusted assumptions, and proof limits. `pdd status` checks that the latest receipt still matches the current source and approval. For the requirements, test results, rejected mutations, and links to logs on one page, run `pdd report --out .pdd/results/login.html` and open the HTML file.
+Open the report path to see the two results, three rejected mutations, and links
+to the saved logs. Explore the source and review with `pdd --cwd pdd-demo plan`.
+After edits, rerun `pdd --cwd pdd-demo prove` and regenerate the HTML with
+`pdd --cwd pdd-demo report --out .pdd/results/demo.html`.
 
 ## Use it in your project
 
-Pick a production function that makes an important decision. Keep the rule in the Go core and use named Go tests where the application connects it to HTTP, storage, or external libraries.
+Pick a production function that makes an important decision. For a runnable walkthrough in a separate Go module, see [prove one function](docs/first-project.md). Keep the rule in the Go core and use named Go tests where the application connects it to HTTP, storage, or external libraries.
 
 1. Run `pdd init` in your repository. Add `// @ ensures` contracts to the production `.go` files and fill in `.pdd/plan.json` with the rule, checks, trust assumptions, and a deliberate negative mutation for each formal clause. [Plan format](docs/plan-format.md)
 2. Run `pdd lint` and `pdd plan`. Use `pdd plan --diff` when revisiting an approved contract. Record which guarantees and assumptions a reviewer accepts with `pdd approve --reviewer "$REVIEWER" --accept-tcb "$TRUST_IDS" --expect-digest "$REVIEWED_DIGEST"`, substituting your reviewer, comma-separated trust IDs, and the digest from the plan they inspected. [Signed reviews](docs/signed-reviews.md)

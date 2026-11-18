@@ -9,8 +9,7 @@ execution log, the Playwright JSON, and any saved failure screenshots and traces
 
 Use a Go toolchain, the pinned Gobra image, and Node.js 20 or newer for this
 example. Install Playwright and Chromium once on the machine running the check.
-Run these commands from the repository root with a `pdd` binary built from this
-checkout.
+Run these commands from the repository root with `pdd` v0.4.0 or newer.
 
 ```sh
 browser_tools=$(mktemp -d)
