@@ -28,6 +28,7 @@ type Execution struct {
 	ExitCode   int      `json:"exit_code"`
 	Output     string   `json:"-"`
 	stdout     string
+	artifacts  map[string][]byte
 	Detail     string `json:"detail,omitempty"`
 	DurationMS int64  `json:"duration_ms"`
 }
@@ -43,6 +44,9 @@ type ToolRunner struct {
 var formalSummaryRE = regexp.MustCompile(`(?i)Gobra found ([0-9]+) errors?\.`)
 
 func (r ToolRunner) Run(ctx context.Context, root string, c Check) Execution {
+	if c.Kind == "playwright" {
+		return r.runBrowser(ctx, root, c)
+	}
 	goExe := r.Go
 	if goExe == "" {
 		goExe = "go"
@@ -118,7 +122,7 @@ type processControl struct {
 func execute(ctx context.Context, root string, command []string, timeout time.Duration) Execution {
 	return executeWithInput(ctx, root, command, timeout, nil)
 }
-func executeWithInput(ctx context.Context, root string, command []string, timeout time.Duration, input []byte) Execution {
+func executeWithInput(ctx context.Context, root string, command []string, timeout time.Duration, input []byte, env ...string) Execution {
 	e := Execution{Status: "failed", Command: command, ExitCode: -1}
 	if timeout <= 0 {
 		timeout = 2 * time.Minute
@@ -138,6 +142,7 @@ func executeWithInput(ctx context.Context, root string, command []string, timeou
 	}
 	cmd.WaitDelay = 2 * time.Second
 	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=", "GOOS="+runtime.GOOS, "GOARCH="+runtime.GOARCH)
+	cmd.Env = append(cmd.Env, env...)
 	var output, diagnostics boundedOutput
 	cmd.Stdout = &output
 	cmd.Stderr = &diagnostics

@@ -15,13 +15,19 @@ import (
 	"time"
 )
 
+type EvidenceArtifact struct {
+	File   string `json:"file"`
+	SHA256 string `json:"sha256"`
+}
+
 type Evidence struct {
-	Check        string    `json:"check"`
-	Kind         string    `json:"kind"` // formal or empirical
-	Execution    Execution `json:"execution"`
-	Log          string    `json:"log"`
-	LogSHA256    string    `json:"log_sha256"`
-	Dependencies []string  `json:"dependencies,omitempty"`
+	Artifacts    []EvidenceArtifact `json:"artifacts,omitempty"`
+	Check        string             `json:"check"`
+	Kind         string             `json:"kind"` // formal or empirical
+	Execution    Execution          `json:"execution"`
+	Log          string             `json:"log"`
+	LogSHA256    string             `json:"log_sha256"`
+	Dependencies []string           `json:"dependencies,omitempty"`
 }
 type MutationResult struct {
 	ID          string    `json:"id"`
@@ -166,6 +172,23 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 		return name, hashBytes([]byte(e.Output)), nil
 	}
 	recordExecution := func(c Check, e Execution) error {
+		var artifacts []EvidenceArtifact
+		var names []string
+		for name := range e.artifacts {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			data := e.artifacts[name]
+			if !validBrowserArtifactName(c, name) || len(data) > browserArtifactLimit {
+				return fmt.Errorf("invalid browser artifact %s", name)
+			}
+			if err := AtomicWrite(filepath.Join(dir, name), data); err != nil {
+				return err
+			}
+			artifacts = append(artifacts, EvidenceArtifact{File: name, SHA256: hashBytes(data)})
+		}
+		e.artifacts = nil
 		executions[c.ID] = e
 		log, hash, err := saveLog(c.ID, e)
 		if err != nil {
@@ -175,7 +198,7 @@ func Prove(ctx context.Context, root string, p Plan, options Options) (Receipt, 
 		if c.Kind == "gobra" {
 			kind = "formal"
 		}
-		receipt.Evidence = append(receipt.Evidence, Evidence{Check: c.ID, Kind: kind, Execution: e, Log: log, LogSHA256: hash, Dependencies: graph.Dependencies[c.ID]})
+		receipt.Evidence = append(receipt.Evidence, Evidence{Check: c.ID, Kind: kind, Execution: e, Log: log, LogSHA256: hash, Dependencies: graph.Dependencies[c.ID], Artifacts: artifacts})
 		if e.Status != "passed" {
 			receipt.Gaps = append(receipt.Gaps, c.ID+": "+e.Status+" "+e.Detail)
 		}
@@ -396,6 +419,11 @@ func Markdown(r Receipt) string {
 	for _, e := range r.Evidence {
 		fmt.Fprintf(&b, "| %s | %s | %s | %d ms | %s | [%s](%s) |\n", e.Check, e.Kind, e.Execution.Status, e.Execution.DurationMS, strings.Join(e.Dependencies, ", "), e.Log, e.Log)
 	}
+	for _, e := range r.Evidence {
+		for _, a := range e.Artifacts {
+			fmt.Fprintf(&b, "\n- %s browser evidence: [%s](%s)\n", e.Check, a.File, a.File)
+		}
+	}
 	fmt.Fprint(&b, "\n## Trusted boundary\n\n")
 	for _, t := range r.Trust {
 		fmt.Fprintf(&b, "- %s: %s (empirical check: %s)\n", t.ID, t.Assumption, t.Check)
@@ -532,7 +560,7 @@ func StatusContext(ctx context.Context, root string, p Plan, policyPath string) 
 			deps := append([]string{}, e.Dependencies...)
 			sort.Strings(deps)
 			kind := "formal"
-			if c.Kind == "go-test" {
+			if isEmpirical(c) {
 				kind = "empirical"
 			}
 			if !ok || e.Kind != kind || e.Execution.Status != "passed" || e.Execution.ExitCode != 0 || strings.Join(deps, ",") != strings.Join(graph.Dependencies[c.ID], ",") {
@@ -614,8 +642,35 @@ func StatusContext(ctx context.Context, root string, p Plan, policyPath string) 
 		if err != nil {
 			return receipt, dir, err
 		}
-		if receipt.Success {
-			if err = validateExecutionOutput(checks[e.Check], recordedStdout(string(data)), string(data)); err != nil {
+		c, planned := checks[e.Check]
+		if !planned || len(e.Artifacts) > browserArtifactCount {
+			return receipt, dir, fmt.Errorf("receipt has unexpected check or artifacts")
+		}
+		var browserReport []byte
+		seen := map[string]bool{}
+		for _, artifact := range e.Artifacts {
+			if !validBrowserArtifactName(c, artifact.File) || seen[artifact.File] {
+				return receipt, dir, fmt.Errorf("invalid browser artifact %s", artifact.File)
+			}
+			seen[artifact.File] = true
+			attachment, err := checkLog(artifact.File, artifact.SHA256)
+			if err != nil || len(attachment) > browserArtifactLimit {
+				return receipt, dir, fmt.Errorf("missing or altered browser artifact %s", artifact.File)
+			}
+			if artifact.File == browserReportFile(c) {
+				browserReport = attachment
+			}
+		}
+		if receipt.Success || e.Execution.Status == "passed" {
+			if c.Kind == "playwright" {
+				if e.Execution.ExitCode != 0 {
+					return receipt, dir, fmt.Errorf("Playwright passed despite nonzero exit")
+				}
+				err = validateBrowserReport(browserReport, c, "")
+			} else {
+				err = validateExecutionOutput(c, recordedStdout(string(data)), string(data))
+			}
+			if err != nil {
 				return receipt, dir, fmt.Errorf("saved check %s does not support success: %w", e.Check, err)
 			}
 		}

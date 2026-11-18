@@ -20,7 +20,7 @@ The selected image is Gobra `v26.09`, resolved and pinned to `sha256:5e96431b06c
 - `packages.go` resolves complete same-module proof packages, receiver-qualified symbols and the dependency DAG. It rejects ambiguous import resolution and unverified callee packages.
 - `inputs.go` validates reviewed asset exclusions and the protected Go input closure; `snapshot.go` captures bounded inputs, modes and directories and creates separate check/mutation workspaces.
 - `approval_transfer.go` exports/imports complete matching reviews without minting CI approvals.
-- `runner.go` invokes only Gobra and named Go tests, distinguishes operational failures and validates actual results.
+- `runner.go` invokes Gobra and named Go tests. `browser.go` runs a reviewed Playwright project and validates first-attempt results for the named tests.
 - `prove.go` joins the evidence, rejects gaps and staleness, and writes receipts.
 
 Formal evidence covers exactly the clauses checked by the Gobra invocation. The production function is both compiled by Go and passed directly to Gobra. The baseline check succeeds first; each mutant must then fail on the target clause. No successful test can replace a failed formal obligation.

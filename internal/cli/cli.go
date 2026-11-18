@@ -29,7 +29,7 @@ Usage: pdd [--cwd DIR] [--plan NAME] [--json] <command> [options]
   approve    Record review: --reviewer NAME [--accept-tcb id1,id2]
   export-approval  Save the current reviewed assertion: --to PATH
   import-approval  Restore a matching reviewed assertion: --from PATH
-  prove      Run approved Gobra proofs, named Go tests and negative mutations
+  prove      Run approved proofs, Go and Playwright checks, and negative mutations
   status     Check whether this plan's latest receipt is current and successful
   doctor     Check Go and Docker/Java prerequisites
   draft      Generate a plan from --request-file; --apply installs an unapproved draft

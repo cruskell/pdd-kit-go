@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Demo wallet</title>
+  <style>
+    body { max-width:28rem; margin:4rem auto; padding:0 1rem; font:1rem/1.5 system-ui,sans-serif; color:#183149; }
+    label { display:block; }
+    input,button { font:inherit; padding:.45rem .65rem; margin:.25rem 0; }
+    button { background:#183149; border:1px solid #183149; color:white; border-radius:.25rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Demo wallet</h1>
+    <form id="withdrawal">
+      <label for="amount">Amount</label>
+      <input id="amount" type="number" min="1" step="1" required>
+      <button type="submit">Withdraw</button>
+    </form>
+    <p role="status" id="result"></p>
+  </main>
+  <script>
+    const form = document.querySelector('#withdrawal');
+    const result = document.querySelector('#result');
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = form.querySelector('button');
+      button.disabled = true;
+      result.textContent = 'Submitting…';
+      try {
+        const response = await fetch('/v1/withdraw', {
+          method: 'POST',
+          headers: {'Authorization': 'Bearer demo-alice', 'Content-Type': 'application/json'},
+          body: JSON.stringify({amount: document.querySelector('#amount').valueAsNumber}),
+        });
+        if (response.ok) {
+          const {balance} = await response.json();
+          result.textContent = `Remaining balance: ${balance}`;
+        } else {
+          result.textContent = response.status === 403 ? 'Withdrawal denied.' : 'Withdrawal failed.';
+        }
+      } catch {
+        result.textContent = 'Withdrawal failed.';
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

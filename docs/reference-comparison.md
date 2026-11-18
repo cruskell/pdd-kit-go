@@ -16,9 +16,9 @@ planning. These published workflows are the basis for the comparison below.
 | Intent artifact | Original request, verbatim excerpts mapped to requirement/decision IDs | Human review determines whether the proposed clauses express the right intent |
 | Planning review | Two separate invocations for intent fidelity and guarantee quality; both must be ready before approval when enabled | Advisory opinions, not authenticated independent people or formal proof |
 | Trust | Per-clause assumptions, impact if false, named tests, Given/When/Then cases and explicit acceptance of each clause | Tests sample behavior; external library implementations remain outside Gobra's proved core |
-| Human-facing views | Offline HTML cards, specification landscape, workflow diagram, task dependencies, findings and limits | No Chopin API integration, live multiplayer editor or generated semantic pictures |
+| Human-facing views | Offline HTML for requirements, verdicts, negative examples, trust, review and linked artifacts | No Chopin API integration, live multiplayer editor or generated semantic pictures |
 | Implementation | Scratch candidate repair loop for Go bodies, tests and opt-in provable proof hints | Frozen declarations, contracts, pure definitions, intent and trust cannot be silently changed |
-| Verification | Pinned Gobra proofs, named Go tests, per-clause negative mutations, source/approval/log-bound receipts | Supported Go subset; not Rust/Verus equivalence |
+| Verification | Pinned Gobra proofs, named Go and Playwright tests, per-clause negative mutations and source-bound receipts | Supported Go subset; not Rust/Verus equivalence |
 | Gap analysis | Separate advisory reviewer sees source and actual machine results; review binds to the exact receipt | A model cannot turn failed machine verification into success |
 | Feedback | Machine/advisory failures lead to bounded repair; changed contracts or unsupported scope stop for a decision | No automatic human signoff |
 | Delivery | `pr` previews an evidence-backed body; `pr --create` opens a draft PR for committed, pushed, freshly verified code | Does not push, merge or bypass protection |
@@ -26,8 +26,7 @@ planning. These published workflows are the basis for the comparison below.
 
 The remaining reference-specific gaps are real: Chopin's collaborative planning
 surface, Rust async and Verus-specific trusted external function adapters, and
-built-in browser/computer-use test orchestration are not implemented. Go empirical
-tests can exercise real I/O; that does not prove those dependencies. Arbitrary Go
+general desktop computer-use orchestration remain open. The built-in Playwright adapter runs reviewed browser suites and records empirical results. Arbitrary Go
 generics, dependency imports in formal packages and concurrency proofs retain the
 restrictions documented in [the plan format](plan-format.md).
 

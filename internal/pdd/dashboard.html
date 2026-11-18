@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Draft.Plan.Name}} · PDD review</title>
+<style>
+  :root { color-scheme: light; --text:#142638; --muted:#4d6072; --line:#d8e2e9; --bg:#f5f8fa; --link:#125883; }
+  * { box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font:16px/1.55 system-ui,sans-serif; margin:0; }
+  main { max-width:1080px; margin:auto; padding:32px clamp(16px,4vw,48px); }
+  h1,h2,h3 { line-height:1.22; margin:0 0 .6em; }
+  h1 { font-size:clamp(2rem,5vw,3rem); }
+  h2 { font-size:1.4rem; }
+  h3 { font-size:1rem; }
+  p { margin:.5em 0; }
+  nav { display:flex; flex-wrap:wrap; gap:8px 20px; margin:20px 0; }
+  a { color:var(--link); text-underline-offset:3px; }
+  small,.muted { color:var(--muted); }
+  .panel { background:white; border:1px solid var(--line); border-radius:12px; padding:clamp(14px,3vw,24px); margin:16px 0; }
+  .table { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; }
+  td,th { text-align:left; vertical-align:top; padding:10px; border-bottom:1px solid var(--line); }
+  th { font-size:.86rem; color:var(--muted); }
+  tr:last-child td { border-bottom:0; }
+  pre { white-space:pre-wrap; overflow-wrap:anywhere; background:var(--bg); padding:10px; }
+  code,small { overflow-wrap:anywhere; }
+  details { margin-top:10px; }
+  summary { cursor:pointer; color:var(--link); }
+  .state { display:inline-block; font-weight:650; padding:3px 9px; border-radius:6px; background:#edf2f6; }
+  .good { background:#e3f5eb; color:#135437; }
+  .warning { background:#fff0e0; color:#802d09; }
+  .row { display:flex; align-items:baseline; gap:8px 16px; flex-wrap:wrap; }
+  .row h2 { margin-bottom:0; }
+</style>
+</head>
+<body><main>
+<header>
+  <h1>{{.Draft.Plan.Name}}</h1>
+  <p>{{.Draft.Plan.Intent}}</p>
+  <small>Plan {{.Draft.PlanID}} · Draft {{.Draft.Digest}}</small>
+</header>
+<nav aria-label="Report sections">
+  <a href="#requirements">Requirements</a>
+  {{if .Evidence}}<a href="#checks">Checks and logs</a>{{if .Evidence.NegativeExamples}}<a href="#mutations">Negative examples</a>{{end}}{{end}}
+  {{if .Draft.Plan.Trust}}<a href="#trust">Trusted boundary</a>{{end}}
+  <a href="#review">Review and limits</a>
+</nav>
+{{if .Draft.ValidationError}}<p class="panel warning">Before approval: {{.Draft.ValidationError}}</p>{{end}}
+{{with .Evidence}}
+<section class="panel" aria-label="Verification summary">
+  <div class="row"><h2>Verification</h2>{{if .Success}}<span class="state good">Passed</span>{{else}}<span class="state warning">Failed</span>{{end}}</div>
+  <p>Receipt validated against the source and approval when this report was generated.</p>
+  <small>Completed {{.FinishedAt}} · Source <code>{{.SourceDigest}}</code>{{if .GitCommit}} · Commit <code>{{.GitCommit}}</code>{{end}}</small>
+  {{if .ReceiptURL}}<p><a href="{{.ReceiptURL}}">Open receipt JSON</a></p>{{end}}
+</section>
+{{else}}
+<section class="panel" aria-label="Verification summary">
+  <h2>Verification</h2><p class="state warning">No current evidence</p>
+  {{with .Workflow}}{{range .Gaps}}<p>{{.}}</p>{{end}}{{end}}
+</section>
+{{end}}
+<section id="requirements" class="panel">
+  <h2>Requirements</h2>
+  {{range .Draft.Plan.IntentMap}}<blockquote>{{.UserWords}}<br><small>Requirements: {{range .Requirements}}<a href="#requirement-{{.}}">{{.}}</a> {{end}}</small></blockquote>{{end}}
+  <div class="table"><table>
+    <thead><tr><th>Requirement</th><th>Guarantee</th><th>Result</th></tr></thead>
+    <tbody>{{range .Draft.Plan.Requirements}}
+      <tr id="requirement-{{.ID}}"><th scope="row">{{.ID}}</th><td>{{.Text}}{{if .Ensures}}<pre>{{.Ensures}}</pre>{{end}}{{if .File}}<small>{{.File}} · {{.Function}}</small>{{end}}</td>
+      <td>{{if $.Evidence}}{{with index $.Evidence.Verdicts .ID}}<span class="state{{if or (eq . "proved") (eq . "evidenced")}} good{{end}}">{{.}}</span>{{end}}{{else}}<span class="muted">Pending</span>{{end}}
+        <br><small>{{.Kind}} · {{if $.Evidence}}<a href="#check-{{.Check}}">{{.Check}}</a>{{else}}{{.Check}}{{end}}</small></td></tr>
+    {{end}}</tbody>
+  </table></div>
+</section>
+{{with .Evidence}}
+<section id="checks" class="panel">
+  <h2>Checks and logs</h2>
+  <div class="table"><table>
+    <thead><tr><th>Check</th><th>Result</th><th>Evidence</th></tr></thead>
+    <tbody>{{range .Checks}}
+      <tr id="check-{{.Check}}"><th scope="row">{{.Check}}<br><small>{{.Backend}} · {{.Kind}}</small></th>
+      <td><span class="state{{if eq .Execution.Status "passed"}} good{{end}}">{{.Execution.Status}}</span><br><small>{{.Execution.DurationMS}} ms</small>{{if .Execution.Detail}}<p>{{.Execution.Detail}}</p>{{end}}</td>
+      <td>{{if .LogURL}}<a href="{{.LogURL}}">Execution log</a>{{end}}
+        {{range .Files}}<br>{{if .URL}}<a href="{{.URL}}">{{.Label}}</a>{{else}}{{.Label}}{{end}}{{end}}
+        {{if .Tests}}<details><summary>Planned tests</summary><ul>{{range .Tests}}<li>{{.}}</li>{{end}}</ul></details>{{end}}
+        {{if .Dependencies}}<p><small>Depends on {{range .Dependencies}}<a href="#check-{{.}}">{{.}}</a> {{end}}</small></p>{{end}}</td></tr>
+    {{end}}</tbody>
+  </table></div>
+</section>
+{{if .NegativeExamples}}
+<section id="mutations" class="panel">
+  <h2>Negative examples</h2>
+  <p class="muted">A killed mutation was rejected on the intended postcondition.</p>
+  <div class="table"><table>
+    <thead><tr><th>Mutation</th><th>Target</th><th>Result</th><th>Evidence</th></tr></thead>
+    <tbody>{{range .NegativeExamples}}<tr><th scope="row">{{.ID}}</th><td><a href="#requirement-{{.Requirement}}">{{.Requirement}}</a></td><td><span class="state{{if eq .Status "killed"}} good{{end}}">{{.Status}}</span>{{if .Execution.Detail}}<br><small>{{.Execution.Detail}}</small>{{end}}</td><td>{{if .LogURL}}<a href="{{.LogURL}}">Verifier log</a>{{end}}</td></tr>{{end}}</tbody>
+  </table></div>
+</section>
+{{end}}
+{{end}}
+{{if .Draft.Plan.Trust}}
+<section id="trust" class="panel"><h2>Trusted boundary</h2>
+  {{range .Draft.Plan.Trust}}<h3>{{.ID}}</h3><p>{{.Assumption}}</p>
+    <small>Check {{if $.Evidence}}<a href="#check-{{.Check}}">{{.Check}}</a>{{else}}{{.Check}}{{end}}{{if .Affects}} · Affects {{range .Affects}}<a href="#requirement-{{.}}">{{.}}</a> {{end}}{{end}}</small>
+    {{range .Clauses}}<p><b>{{.ID}}</b> {{.Text}} · If false: {{.Impact}} · Test {{.Test}}</p>{{end}}
+  {{end}}
+</section>
+{{end}}
+{{if .Draft.Plan.Decisions}}<section class="panel"><h2>Decisions</h2>
+  {{range .Draft.Plan.Decisions}}<article><h3>{{.Question}}</h3><p>{{.Context}}</p><small>{{.File}} {{.Function}} · {{.ID}}</small>
+    {{range .Options}}<p><b>{{.Label}}</b>{{if .Recommended}} (recommended){{end}} · {{.Consequence}}</p>{{end}}
+    {{if .Selected}}<p>Selected {{.Selected}} · {{.Rationale}}</p>{{else}}<p>Awaiting decision</p>{{end}}</article>{{end}}
+</section>{{end}}
+{{if .Draft.Plan.Scenarios}}<section class="panel"><h2>Test scenarios</h2>
+  {{range .Draft.Plan.Scenarios}}<h3>{{.ID}} · {{.Purpose}}</h3><p>Given {{.Given}}<br>When {{.When}}<br>Then {{.Then}}</p><small>{{.Check}} / {{.Test}}</small>{{end}}
+</section>{{end}}
+<section id="review" class="panel"><h2>Review and limits</h2>
+  {{with .Review}}<h3>Frozen approval contract</h3><p>Approval {{.Approval.State}}{{with .Approval.Message}} · {{.}}{{end}}</p>
+    <small>Plan digest <code>{{.Digest}}</code></small>
+    {{range .Bundle.Sources}}<details><summary>{{.File}}</summary>{{range .Annotations}}<pre>{{.}}</pre>{{end}}{{if .Definitions}}<pre>{{printf "%s" .Definitions}}</pre>{{end}}{{range .Bindings}}<p><small>{{.Owner}}</small> · {{.Annotation}}</p>{{end}}</details>{{end}}
+  {{end}}
+  {{range .Draft.Plan.PlanningReviews}}<details><summary>Advisory {{.Role}} review · {{.Result.Status}}</summary><p>{{.Result.Summary}}</p>{{range .Result.Findings}}<p>{{.Severity}} · {{.Text}}</p>{{end}}<small>{{.Invocation}} · {{.Driver}}</small></details>{{end}}
+  {{with .Workflow}}
+    {{with .GapReview}}<p>Advisory gap review · {{.Result.Status}} · {{.Result.Summary}}</p>{{end}}
+    {{if $.Evidence}}{{range .Gaps}}<p class="warning">{{.}}</p>{{end}}{{end}}
+    {{if .PruneCandidates}}<p>Formal regression scenarios for manual review · {{range .PruneCandidates}}{{.}} {{end}}</p>{{end}}
+  {{end}}
+  {{if .Draft.Plan.NonGoals}}<h3>Excluded guarantees</h3><ul>{{range .Draft.Plan.NonGoals}}<li>{{.}}</li>{{end}}</ul>{{end}}
+  <details><summary>Complete plan</summary><pre>{{.JSON}}</pre></details>
+</section>
+</main></body>
+</html>

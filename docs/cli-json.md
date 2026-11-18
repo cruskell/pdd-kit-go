@@ -80,3 +80,8 @@ and conservative pruning candidates. `build` returns stage, success, decision-ne
 state, applied edits, iterations and artifact paths; success=false exits 1.
 `report` returns its written HTML path. `pr` returns the evidence body/path and a URL
 only after explicit successful `--create`. All use the same schema-1 envelope.
+
+Playwright evidence can include an `artifacts` array on a receipt check. Each
+entry has a receipt-relative `file` and `sha256`. The JSON test report is required
+for a successful browser check. Optional PNG and trace ZIP files preserve failure
+context. `status` revalidates referenced files and the required test results.

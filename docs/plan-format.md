@@ -10,7 +10,7 @@ The [login example](../examples/login/plan.json) is a complete plan. Identifiers
 | `name`, `intent` | Human-readable purpose and intended behavior |
 | `non_goals` | Limitations and excluded guarantees shown in receipts |
 | `requirements` | Named obligations with a formal or empirical evidence classification |
-| `checks` | Typed Gobra or Go-test invocations; arbitrary shell commands are not supported |
+| `checks` | Typed Gobra, Go test, or Playwright invocations |
 | `trusted_boundary` | Explicit assumptions with empirical checks |
 | `mutations` | Negative examples, at least one per formal requirement |
 | `inputs` | Optional reviewed snapshot limits and exact asset exclusions; see [input scope](inputs.md) |
@@ -27,7 +27,18 @@ External/standard-library imports, nested modules, `go.mod` replacement directiv
 
 An empirical requirement names `id`, `text`, `kind: "empirical"`, and a `go-test` check. That check has `package` (one local package, such as `./internal/auth`) and `tests` (explicit top-level names such as `TestLoginBoundary`). Passing output must contain an actual `pass` event for every named test. Table cases/subtests may exist inside those named tests. Test quality and sufficiency require review; a passing test can still assert nothing useful.
 
-Each trust item has `id`, `assumption`, and `check`; the check must be empirical. `approve --accept-tcb` must list exactly all trust IDs. Mapping a broad assumption to one weak test does not make it true: explain the test's limits in the assumption and non-goals.
+A `playwright` check supplies `config` (repository-relative config file), `project`
+(one exact project name), and `tests` (required test identities). A test identity
+has the form `file :: title`, with the file relative to Playwright's report root.
+For nested `describe` blocks, use `file :: Suite › Nested suite › test title`.
+Use this check for empirical requirements, trust checks, and test scenarios.
+
+The selected project runs once, with zero retries. Every listed test must appear
+as a first-attempt pass in the final Playwright JSON, and the project must finish
+without skipped, failed, flaky, or expected-failure cases. The results are recorded
+as empirical evidence. See [browser checks](browser-checks.md) for setup and scope.
+
+Each trust item has `id`, `assumption`, and `check`; the check must be empirical. `approve --accept-tcb` must list all trust IDs and assumed clause IDs. Mapping a broad assumption to one weak test does not make it true: explain the test's limits in the assumption and non-goals.
 
 ## Negative mutations
 

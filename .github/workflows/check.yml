@@ -75,6 +75,32 @@ jobs:
               assert result['data']['current'] and result['data']['receipt']['success']
               assert result['data']['receipt']['approval']['reviewer'] == 'codex-example-review'
           PYTHON
+      - name: Install the browser test runner outside the source snapshot
+        run: |
+          npm install --no-audit --no-fund --prefix "$RUNNER_TEMP/pdd-playwright" @playwright/test@1.65.1
+          runner="$RUNNER_TEMP/pdd-playwright/node_modules/@playwright/test/cli.js"
+          node "$runner" install --with-deps chromium
+          echo "PDD_PLAYWRIGHT_CLI=$runner" >> "$GITHUB_ENV"
+      - name: Verify the wallet browser flow and HTML evidence
+        run: |
+          bin/pdd --plan httpwallet-browser init --from examples/httpwallet/browser/plan.json
+          bin/pdd --plan httpwallet-browser import-approval --from .pdd/reviews/httpwallet-browser.json
+          bin/pdd --plan httpwallet-browser prove --json > .pdd/browser-prove-result.json
+          bin/pdd --plan httpwallet-browser status --json > .pdd/browser-status-result.json
+          bin/pdd --plan httpwallet-browser report --out .pdd/state/httpwallet-browser/report.html
+          python3 - <<'PYCODE'
+          import json
+          from pathlib import Path
+          status = json.loads(Path('.pdd/browser-status-result.json').read_text())
+          assert status['ok'] and status['data']['current']
+          receipt = status['data']['receipt']
+          assert receipt['success']
+          assert any(v['id'] == 'overdraft-screen' and v['status'] == 'evidenced' for v in receipt['requirements'])
+          browser = next(e for e in receipt['evidence'] if e['check'] == 'wallet-browser')
+          assert browser['kind'] == 'empirical' and browser['artifacts'][0]['file'] == 'wallet-browser.playwright.json'
+          report = Path('.pdd/state/httpwallet-browser/report.html').read_text()
+          assert 'playwright · empirical' in report and 'wallet-browser.playwright.json' in report and 'killed' in report
+          PYCODE
       - name: Upload proof receipts
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -83,6 +109,8 @@ jobs:
           path: |
             .pdd/receipts/
             .pdd/state/httpwallet/receipts/
+            .pdd/state/httpwallet-browser/receipts/
+            .pdd/state/httpwallet-browser/report.html
             .pdd/*-result.json
           if-no-files-found: warn
           include-hidden-files: true

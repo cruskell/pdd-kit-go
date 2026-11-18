@@ -154,7 +154,7 @@ func validatePlanning(root string, p Plan, ids map[string]bool) error {
 			return err
 		}
 		c := checks[s.Check]
-		if c.Kind != "go-test" || !contains(c.Tests, s.Test) || strings.TrimSpace(s.Given) == "" || strings.TrimSpace(s.When) == "" || strings.TrimSpace(s.Then) == "" {
+		if !isEmpirical(c) || !contains(c.Tests, s.Test) || strings.TrimSpace(s.Given) == "" || strings.TrimSpace(s.When) == "" || strings.TrimSpace(s.Then) == "" {
 			return fmt.Errorf("scenario %s needs a named empirical test and Given/When/Then", s.ID)
 		}
 		if s.Purpose != "boundary" && s.Purpose != "integration" && s.Purpose != "runtime" && s.Purpose != "formal-regression" {
